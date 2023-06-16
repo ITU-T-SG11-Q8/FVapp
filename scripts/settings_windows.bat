@@ -1,2 +1,2 @@
 REM Conda environment name
-set CONDA_ENV_NAME=avatarify
+set CONDA_ENV_NAME=avatarify_git
