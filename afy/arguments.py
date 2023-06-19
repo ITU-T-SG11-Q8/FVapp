@@ -20,10 +20,15 @@ parser.add_argument("--avatars", default="./avatars", help="path to avatars dire
 parser.add_argument("--is-worker", action="store_true", help="Whether to run this process as a remote GPU worker")
 parser.add_argument("--is-client", action="store_true", help="Whether to run this process as a client")
 parser.add_argument("--in-port", type=int, default=5557, help="Remote worker input port")
-parser.add_argument("--out-port", type=int, default=5557, help="Remote worker output port")
+parser.add_argument("--out-port", type=int, default=5558, help="Remote worker output port")
 parser.add_argument("--in-addr", type=str, default=None, help="Socket address for incoming messages, like example.com:5557")
 parser.add_argument("--out-addr", type=str, default=None, help="Socker address for outcoming messages, like example.com:5558")
 parser.add_argument("--jpg_quality", type=int, default=95, help="Jpeg copression quality for image transmission")
+parser.add_argument("--is-server", action="store_true", help="Whether to run this process as a server")
+parser.add_argument("--listen-port", type=int, dest="listen_port", help="Server Listen Port")
+parser.add_argument("--server-ip", dest="server_ip", help="Connect Server IP Address")
+parser.add_argument("--server-port", type=int, dest="server_port", help="Connect Server Port")
+parser.add_argument("--keyframe-period", type=int, dest="keyframe_period", help="Send Keyframe Period")
 
 parser.set_defaults(relative=False)
 parser.set_defaults(adapt_scale=False)
@@ -33,3 +38,9 @@ opt = parser.parse_args()
 
 if opt.is_client and (opt.in_addr is None or opt.out_addr is None):
     raise ValueError("You have to set --in-addr and --out-addr")
+
+if opt.is_server is False and (opt.server_ip is None or opt.server_port is None):
+    raise ValueError("You have to set --server_ip and --server-port")
+
+if opt.is_server is True and (opt.listen_port is None):
+    raise ValueError("You have to set --listen-port")
