@@ -209,7 +209,7 @@ def draw_calib_text(image_size, frame, thk=2, fontsz=0.5, color=(0, 0, 255)):
 '''
 
 
-form_class = uic.loadUiType("AI_REPORT.ui")[0]
+form_class = uic.loadUiType("GUI/MAIN_WINDOW.ui")[0]
 
 
 class MicWorker(GrmParentThread):
@@ -1176,7 +1176,7 @@ class MainWindowClass(QMainWindow, form_class):
 class NewDialogClass(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
-        self.ui = uic.loadUi("new_view_ui.ui", self)
+        self.ui = uic.loadUi("GUI/NEW_VIEW.ui", self)
         self.status = False
         self.image = QtGui.QImage()
         self.setAttribute(Qt.WA_OpaquePaintEvent)
@@ -1213,7 +1213,7 @@ class NewDialogClass(QtWidgets.QWidget):
 class RoomCreateClass(QDialog):
     def __init__(self):
         super().__init__()
-        self.ui = uic.loadUi("create_room.ui", self)
+        self.ui = uic.loadUi("GUI/ROOM_CREATE.ui", self)
         self.button_ok.clicked.connect(myWindow.create_room_ok_func)
         self.button_cancel.clicked.connect(self.close_button)
         self.button_file_search.clicked.connect(self.load_admin_key)
@@ -1238,7 +1238,7 @@ class RoomCreateClass(QDialog):
 class RoomJoinClass(QDialog):
     def __init__(self):
         super().__init__()
-        self.ui = uic.loadUi("join.ui", self)
+        self.ui = uic.loadUi("GUI/JOIN_ROOM.ui", self)
         self.button_ok.clicked.connect(myWindow.send_join_room_func)
         self.button_cancel.clicked.connect(self.close_button)
         self.button_query.clicked.connect(self.overlay_id_search_func)
@@ -1279,7 +1279,7 @@ class RoomJoinClass(QDialog):
 class RoomInformationClass(QDialog):
     def __init__(self):
         super().__init__()
-        self.ui = uic.loadUi("room_information.ui", self)
+        self.ui = uic.loadUi("GUI/ROOM_INFORMATION.ui", self)
         self.button_ok.clicked.connect(myWindow.modify_information_room)
         self.button_cancel.clicked.connect(self.close_information_room)
 
