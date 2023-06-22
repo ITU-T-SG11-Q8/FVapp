@@ -12,13 +12,16 @@ class VideoCaptureAsync:
     def __init__(self, src=0, width=640, height=480):
         self.src = src
 
+        #self.cap = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
         self.cap = cv2.VideoCapture(self.src)
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open camera")
 
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.grabbed, self.frame = self.cap.read()
+        #self.grabbed, self.frame = self.cap.read()
+        self.grabbed = None
+        self.frame = None
         self.started = False
         self.read_lock = threading.Lock()
 
@@ -43,13 +46,12 @@ class VideoCaptureAsync:
             if warmup_elapsed_time > WARMUP_TIMEOUT:
                 raise RuntimeError(f"Failed to succesfully grab frame from the camera (timeout={WARMUP_TIMEOUT}s). Try to restart.")
 
-            time.sleep(0.5)
-
         return self
 
     def update(self):
         while self.started:
             grabbed, frame = self.cap.read()
+            time.sleep(0.1)
             if not grabbed or frame is None or frame.size == 0:
                 continue
             with self.read_lock:

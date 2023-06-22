@@ -537,9 +537,8 @@ class WebcamWorker(GrmParentThread):
                 self.pause_send = False
 
                 camera_index = self.device_index
-                if self.predictor.is_server is True:
-                    camera_index = 0
-                elif self.predictor.is_server is False:
+
+                if self.predictor.is_server is False:
                     camera_index = 2
 
                 if camera_index is None:
@@ -553,7 +552,7 @@ class WebcamWorker(GrmParentThread):
                 print(f"video capture async [{camera_index}]")
                 time.sleep(1)
                 cap = VideoCaptureAsync(camera_index)
-                time.sleep(4)
+                time.sleep(1)
                 cap.start()
 
                 avatars, avatar_names = load_images()
@@ -568,6 +567,7 @@ class WebcamWorker(GrmParentThread):
 
                 while self.running:
                     if not cap.isOpened():
+                        print(f"is open failed[{camera_index}]")
                         time.sleep(0.05)
                         continue
                     ret, frame = cap.read()
@@ -1141,8 +1141,8 @@ class RoomInformationClass(QDialog):
 
 
 if __name__ == '__main__':
-    #import os
-    #os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+    import os
+    os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
     app = QApplication(sys.argv)
     print("START.....MAIN WINDOWS")
