@@ -322,7 +322,7 @@ class VideoRecvWorker(GrmParentThread):
                                     out = self.predictor.decoding(kp_norm)
                                     time_dec = current_milli_time()
 
-                                    print(f'### recv dec:{time_dec - time_start}')
+                                    #print(f'### recv dec:{time_dec - time_start}')
                                     # cv2.imshow('client', out[..., ::-1])
                                     img = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
                                     img = out.copy()
@@ -536,23 +536,17 @@ class WebcamWorker(GrmParentThread):
                 self.sent_key_frame = False
                 self.pause_send = False
 
-                camera_index = self.device_index
-                if self.predictor.is_server is True:
-                    camera_index = 0
-                elif self.predictor.is_server is False:
-                    camera_index = 2
-
-                if camera_index is None:
-                    print(f'camera index invalid...[{camera_index}]')
+                if self.device_index is None:
+                    print(f'camera index invalid...[{self.device_index}]')
                     continue
 
-                if camera_index < 0 :
-                    print(f"Camera index invalid...{camera_index}")
+                if self.device_index < 0 :
+                    print(f"Camera index invalid...{self.device_index}")
                     return
 
-                print(f"video capture async [{camera_index}]")
+                print(f"video capture async [{self.device_index}]")
                 time.sleep(1)
-                cap = VideoCaptureAsync(camera_index)
+                cap = VideoCaptureAsync(self.device_index)
                 time.sleep(4)
                 cap.start()
 
@@ -627,7 +621,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.join_session: SessionData = SessionData()
         self.join_peer: List[PeerData] = []
 
-        #self.camera_device_init(5)
+        self.camera_device_init(5)
         self.audio_device_init()
 
         predictor_args = {
