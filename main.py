@@ -151,7 +151,8 @@ class MicWorker(GrmParentThread):
             while self.running:
                 self.mic_interface = pyaudio.PyAudio()
                 print("Mic Open, Mic Index = ", self.device_index)
-                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, input_device_index=self.device_index, frames_per_buffer=1024)
+                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True,
+                                                          input_device_index=self.device_index, frames_per_buffer=1024)
                 print("Mic End, Mic Index = ", self.device_index)
                 while self.running:
                     _frames = self.mic_stream.read(CHUNK)
@@ -193,7 +194,8 @@ class SpeakerWorker(GrmParentThread):
             while self.running:
                 self.speaker_interface = pyaudio.PyAudio()
                 print("\nSpeaker Open, Index = ", self.device_index)
-                self.speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,  frames_per_buffer=CHUNK, output=True)  # , stream_callback=callback) print("Speaker Open end")
+                self.speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,
+                                                                  frames_per_buffer=CHUNK, output=True)
                 print("\nSpeaker End, Index = ", self.device_index)
                 while self.running:
                     lock_audio_queue.acquire()
