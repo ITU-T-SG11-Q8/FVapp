@@ -37,12 +37,9 @@ import datetime
 RATE = 44100
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
-O_DEVICE_INDEX = 4  # 스피커 장치 인댁스 동봉된 mic_info 파일로 확인해서 변경
-I_DEVICE_INDEX = 1  # 마이크 장치 인댁스 동봉된 mic_info 파일로 확인해서 변경
 CHUNK = 2**10
 
 log = Tee('./var/log/cam_gooroomee.log')
-form_class = uic.loadUiType("GUI/MAIN_WINDOW.ui")[0]
 
 # Where to split an array from face_alignment to separate each landmark
 LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
@@ -620,10 +617,10 @@ class WebcamWorker(GrmParentThread):
         time.sleep(0.05)
 
 
-class MainWindowClass(QMainWindow, form_class):
+class MainWindowClass(QMainWindow):
     def __init__(self, audio_queue):
         super().__init__()
-        self.setupUi(self)
+        self.ui = uic.loadUi("GUI/MAIN_WINDOW.ui", self)
         self.join_session: SessionData = SessionData()
         self.join_peer: List[PeerData] = []
 
