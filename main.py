@@ -39,7 +39,7 @@ CHANNELS = 1
 FORMAT = pyaudio.paInt16
 CHUNK = 2**10
 
-log = Tee('./var/log/cam_gooroomee.log')
+log = Tee('./log/cam_gooroomee.log')
 
 # Where to split an array from face_alignment to separate each landmark
 LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
