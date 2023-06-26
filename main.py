@@ -39,7 +39,7 @@ CHANNELS = 1
 FORMAT = pyaudio.paInt16
 CHUNK = 2**10
 
-log = Tee('./log/cam_gooroomee.log')
+log = Tee('./var/log/cam_gooroomee.log')
 
 # Where to split an array from face_alignment to separate each landmark
 LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
@@ -1022,8 +1022,8 @@ class MainWindowClass(QMainWindow):
 
     def camera_device_init(self, max_count):
         for camera_index in range(0, max_count):
-            #_cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-            _cap = cv2.VideoCapture(camera_index)
+            _cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+            #_cap = cv2.VideoCapture(camera_index)
             device_string = "Camera #" + str(camera_index)
             if not _cap.isOpened():
                 log_string = device_string + " Open failed"
