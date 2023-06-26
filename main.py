@@ -148,7 +148,8 @@ class MicWorker(GrmParentThread):
             while self.running:
                 self.mic_interface = pyaudio.PyAudio()
                 print("Mic Open, Mic Index = ", self.device_index)
-                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, input_device_index=self.device_index, frames_per_buffer=1024)
+                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True,
+                                                          input_device_index=self.device_index, frames_per_buffer=1024)
                 print("Mic End, Mic Index = ", self.device_index)
                 while self.running:
                     _frames = self.mic_stream.read(CHUNK)
@@ -190,7 +191,8 @@ class SpeakerWorker(GrmParentThread):
             while self.running:
                 self.speaker_interface = pyaudio.PyAudio()
                 print("\nSpeaker Open, Index = ", self.device_index)
-                self.speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,  frames_per_buffer=CHUNK, output=True)  # , stream_callback=callback) print("Speaker Open end")
+                self.speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,
+                                                                  frames_per_buffer=CHUNK, output=True)
                 print("\nSpeaker End, Index = ", self.device_index)
                 while self.running:
                     lock_audio_queue.acquire()
@@ -319,7 +321,7 @@ class VideoRecvWorker(GrmParentThread):
                                     out = self.predictor.decoding(kp_norm)
                                     time_dec = current_milli_time()
 
-                                    print(f'### recv dec:{time_dec - time_start}')
+                                    #print(f'### recv dec:{time_dec - time_start}')
                                     # cv2.imshow('client', out[..., ::-1])
                                     img = cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
                                     img = out.copy()
@@ -533,23 +535,17 @@ class WebcamWorker(GrmParentThread):
                 self.sent_key_frame = False
                 self.pause_send = False
 
-                camera_index = self.device_index
-                if self.predictor.is_server is True:
-                    camera_index = 0
-                elif self.predictor.is_server is False:
-                    camera_index = 2
-
-                if camera_index is None:
-                    print(f'camera index invalid...[{camera_index}]')
+                if self.device_index is None:
+                    print(f'camera index invalid...[{self.device_index}]')
                     continue
 
-                if camera_index < 0 :
-                    print(f"Camera index invalid...{camera_index}")
+                if self.device_index < 0 :
+                    print(f"Camera index invalid...{self.device_index}")
                     return
 
-                print(f"video capture async [{camera_index}]")
+                print(f"video capture async [{self.device_index}]")
                 time.sleep(1)
-                cap = VideoCaptureAsync(camera_index)
+                cap = VideoCaptureAsync(self.device_index)
                 time.sleep(4)
                 cap.start()
 
@@ -624,7 +620,7 @@ class MainWindowClass(QMainWindow):
         self.join_session: SessionData = SessionData()
         self.join_peer: List[PeerData] = []
 
-        #self.camera_device_init(5)
+        self.camera_device_init(5)
         self.audio_device_init()
 
         predictor_args = {
