@@ -536,10 +536,12 @@ class WebcamWorker(GrmParentThread):
                 self.pause_send = False
 
                 camera_index = self.device_index
+                '''
                 if self.predictor.is_server is True:
                     camera_index = 0
                 elif self.predictor.is_server is False:
                     camera_index = 2
+                '''
 
                 if camera_index is None:
                     print(f'camera index invalid...[{camera_index}]')
@@ -626,7 +628,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.join_session: SessionData = SessionData()
         self.join_peer: List[PeerData] = []
 
-        #self.camera_device_init(5)
+        self.camera_device_init(5)
         self.audio_device_init()
 
         predictor_args = {
