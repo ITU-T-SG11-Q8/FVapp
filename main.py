@@ -4,7 +4,6 @@ from sys import platform as _platform
 import glob
 import requests
 
-import gooroomee.grm_packet
 from afy.videocaptureasync import VideoCaptureAsync
 from afy.arguments import opt
 from afy.utils import info, Tee, crop, resize, TicToc
@@ -38,9 +37,12 @@ import datetime
 RATE = 44100
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
+O_DEVICE_INDEX = 4  # 스피커 장치 인댁스 동봉된 mic_info 파일로 확인해서 변경
+I_DEVICE_INDEX = 1  # 마이크 장치 인댁스 동봉된 mic_info 파일로 확인해서 변경
 CHUNK = 2**10
 
 log = Tee('./var/log/cam_gooroomee.log')
+form_class = uic.loadUiType("GUI/MAIN_WINDOW.ui")[0]
 
 # Where to split an array from face_alignment to separate each landmark
 LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
@@ -129,7 +131,6 @@ def draw_rect(img, rw=0.6, rh=0.8, color=(255, 0, 0), thickness=2):
     img = cv2.rectangle(img, (int(l), int(u)), (int(r), int(d)), color, thickness)
 
 
-
 class MicWorker(GrmParentThread):
     def __init__(self, p_audio_queue):
         super().__init__()
@@ -149,8 +150,7 @@ class MicWorker(GrmParentThread):
             while self.running:
                 self.mic_interface = pyaudio.PyAudio()
                 print("Mic Open, Mic Index = ", self.device_index)
-                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True,
-                                                          input_device_index=self.device_index, frames_per_buffer=1024)
+                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True, input_device_index=self.device_index, frames_per_buffer=1024)
                 print("Mic End, Mic Index = ", self.device_index)
                 while self.running:
                     _frames = self.mic_stream.read(CHUNK)
@@ -192,8 +192,7 @@ class SpeakerWorker(GrmParentThread):
             while self.running:
                 self.speaker_interface = pyaudio.PyAudio()
                 print("\nSpeaker Open, Index = ", self.device_index)
-                self.speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,
-                                                                  frames_per_buffer=CHUNK, output=True)
+                self.speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,  frames_per_buffer=CHUNK, output=True)  # , stream_callback=callback) print("Speaker Open end")
                 print("\nSpeaker End, Index = ", self.device_index)
                 while self.running:
                     lock_audio_queue.acquire()
@@ -283,13 +282,11 @@ class VideoRecvWorker(GrmParentThread):
                     _bin_data = self.video_recv_grm_queue.pop()
 
                     if _bin_data is not None:
-                        print(f'data received. {len(_bin_data)}')
+                        # print(f'data received. {len(_bin_data)}')
                         while len(_bin_data) > 0:
-                            packetData = grm_packet.parser_packet(_bin_data)
-                            print(f'media_type:{packetData.common_data.mediaType}, '
-                                  f'media_data_type:{packetData.common_data.mediaData.mediaDataType}')
-                            if packetData.common_data.is_keyframe_type() is True:
-                                _value = packetData.common_data.mediaData.parse_data()
+                            _type, _value, _bin_data = grm_packet.parse_bin(_bin_data)
+                            # print(f'type:{_type}, data received:{len(_value)}')
+                            if _type == 100:
                                 print(f'queue:[{self.video_recv_grm_queue}], key_frame received. {len(_value)}')
                                 key_frame = grm_packet.parse_key_frame(_value)
 
@@ -316,9 +313,9 @@ class VideoRecvWorker(GrmParentThread):
                                 self.change_avatar(img)
                                 self.predictor.reset_frames()
                                 find_key_frame = True
-                            elif packetData.common_data.mediaData.mediaDataType == gooroomee.grm_packet.AVATARIFY_TYPE:
+                            elif _type == 200:
                                 if find_key_frame:
-                                    kp_norm = packetData.common_data.mediaData.kp_norm
+                                    kp_norm = grm_packet.parse_kp_norm(_value, self.predictor.device)
 
                                     time_start = current_milli_time()
                                     out = self.predictor.decoding(kp_norm)
@@ -495,8 +492,7 @@ class WebcamWorker(GrmParentThread):
 
         key_frame = cv2.imencode('.jpg', frame)
 
-        #bin_data = self.bin_wrapper.to_bin_key_frame(key_frame[1])
-        bin_data = self.bin_wrapper.make_send_keyframe_packet(key_frame[1], 0)
+        bin_data = self.bin_wrapper.to_bin_key_frame(key_frame[1])
 
         self.lock.acquire()
         self.send_grm_queue.append(bin_data)
@@ -539,17 +535,23 @@ class WebcamWorker(GrmParentThread):
                 self.sent_key_frame = False
                 self.pause_send = False
 
-                if self.device_index is None:
-                    print(f'camera index invalid...[{self.device_index}]')
+                camera_index = self.device_index
+                if self.predictor.is_server is True:
+                    camera_index = 0
+                elif self.predictor.is_server is False:
+                    camera_index = 2
+
+                if camera_index is None:
+                    print(f'camera index invalid...[{camera_index}]')
                     continue
 
-                if self.device_index < 0 :
-                    print(f"Camera index invalid...{self.device_index}")
+                if camera_index < 0 :
+                    print(f"Camera index invalid...{camera_index}")
                     return
 
-                print(f"video capture async [{self.device_index}]")
+                print(f"video capture async [{camera_index}]")
                 time.sleep(1)
-                cap = VideoCaptureAsync(self.device_index)
+                cap = VideoCaptureAsync(camera_index)
                 time.sleep(4)
                 cap.start()
 
@@ -583,8 +585,7 @@ class WebcamWorker(GrmParentThread):
                     kp_norm = self.predictor.encoding(frame)
                     # time_kp_norm = current_milli_time()
 
-                    #bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
-                    bin_data = self.bin_wrapper.make_send_avatarify_packet(kp_norm, 0)
+                    bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
                     # print(f'encoding time:[{time_kp_norm- time_start}]')
 
                     if self.join_flag is True:
@@ -618,14 +619,14 @@ class WebcamWorker(GrmParentThread):
         time.sleep(0.05)
 
 
-class MainWindowClass(QMainWindow):
+class MainWindowClass(QMainWindow, form_class):
     def __init__(self, audio_queue):
         super().__init__()
-        self.ui = uic.loadUi("GUI/MAIN_WINDOW.ui", self)
+        self.setupUi(self)
         self.join_session: SessionData = SessionData()
         self.join_peer: List[PeerData] = []
 
-        self.camera_device_init(5)
+        #self.camera_device_init(5)
         self.audio_device_init()
 
         predictor_args = {
@@ -1027,8 +1028,8 @@ class MainWindowClass(QMainWindow):
 
     def camera_device_init(self, max_count):
         for camera_index in range(0, max_count):
-            _cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-            #_cap = cv2.VideoCapture(camera_index)
+            #_cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+            _cap = cv2.VideoCapture(camera_index)
             device_string = "Camera #" + str(camera_index)
             if not _cap.isOpened():
                 log_string = device_string + " Open failed"
@@ -1105,6 +1106,7 @@ class RoomJoinClass(QDialog):
 
     def close_button(self):
         self.close()
+
     def overlay_id_search_func(self):
         #join_ui.comboBox_overlay_id.addItems(['OverlayID #1', 'OverlayID #2'])
         # 서비스 세션 목록 조회
@@ -1135,7 +1137,6 @@ class RoomInformationClass(QDialog):
 
     def close_information_room(self):
         self.close()
-
 
 
 if __name__ == '__main__':
