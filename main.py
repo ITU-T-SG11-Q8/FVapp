@@ -618,7 +618,6 @@ class WebcamWorker(GrmParentThread):
                 print('# cap interface release index = [', self.device_index, ']')
                 cap.stop()
             time.sleep(0.05)
-        time.sleep(0.05)
 
 
 class MainWindowClass(QMainWindow, form_class):
@@ -628,7 +627,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.join_session: SessionData = SessionData()
         self.join_peer: List[PeerData] = []
 
-        self.camera_device_init(5)
+        self.camera_device_init(3)
         self.audio_device_init()
 
         predictor_args = {
@@ -692,6 +691,7 @@ class MainWindowClass(QMainWindow, form_class):
 
     def timeout(self):
         self.worker_webcam.send_key_frame()
+
     def start(self):
         self.worker_webcam.start_process()
         time.sleep(0.5)
@@ -1030,8 +1030,8 @@ class MainWindowClass(QMainWindow, form_class):
 
     def camera_device_init(self, max_count):
         for camera_index in range(0, max_count):
-            #_cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
-            _cap = cv2.VideoCapture(camera_index)
+            _cap = cv2.VideoCapture(camera_index, cv2.CAP_DSHOW)
+            #_cap = cv2.VideoCapture(camera_index)
             device_string = "Camera #" + str(camera_index)
             if not _cap.isOpened():
                 log_string = device_string + " Open failed"
