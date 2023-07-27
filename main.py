@@ -37,8 +37,6 @@ import datetime
 RATE = 44100
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
-O_DEVICE_INDEX = 4  # 스피커 장치 인댁스 동봉된 mic_info 파일로 확인해서 변경
-I_DEVICE_INDEX = 1  # 마이크 장치 인댁스 동봉된 mic_info 파일로 확인해서 변경
 CHUNK = 2**10
 
 log = Tee('./var/log/cam_gooroomee.log')

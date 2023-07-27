@@ -19,9 +19,9 @@ class VideoCaptureAsync:
 
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        #self.grabbed, self.frame = self.cap.read()
-        self.grabbed = None
-        self.frame = None
+        self.grabbed, self.frame = self.cap.read()
+        #self.grabbed = None
+        #self.frame = None
         self.started = False
         self.read_lock = threading.Lock()
 
