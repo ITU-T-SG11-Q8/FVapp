@@ -6,24 +6,24 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1210</width>
-    <height>550</height>
+    <width>1240</width>
+    <height>580</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>1210</width>
-    <height>550</height>
+    <width>1240</width>
+    <height>580</height>
    </size>
   </property>
   <property name="maximumSize">
    <size>
-    <width>1210</width>
-    <height>550</height>
+    <width>1240</width>
+    <height>580</height>
    </size>
   </property>
   <property name="windowTitle">
-   <string>구루미 프로그램</string>
+   <string>Gooroomee App</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <property name="maximumSize">
@@ -32,7 +32,15 @@
      <height>550</height>
     </size>
    </property>
-   <widget class="QWidget" name="">
+   <widget class="QWidget" name="layoutWidget">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>0</y>
+      <width>1220</width>
+      <height>551</height>
+     </rect>
+    </property>
     <layout class="QGridLayout" name="gridLayout_2">
      <property name="spacing">
       <number>3</number>
@@ -99,7 +107,7 @@
           </size>
          </property>
          <property name="text">
-          <string>생성</string>
+          <string>Channel Create</string>
          </property>
         </widget>
        </item>
@@ -150,7 +158,7 @@
           </size>
          </property>
          <property name="text">
-          <string>비디오</string>
+          <string>Camera Select</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignBottom|Qt::AlignLeading|Qt::AlignLeft</set>
@@ -172,7 +180,7 @@
           </size>
          </property>
          <property name="text">
-          <string>입장</string>
+          <string>Channel Join</string>
          </property>
         </widget>
        </item>
@@ -191,7 +199,7 @@
           </size>
          </property>
          <property name="text">
-          <string>방정보</string>
+          <string>Room Information</string>
          </property>
          <property name="checkable">
           <bool>false</bool>
@@ -261,7 +269,7 @@
           </size>
          </property>
          <property name="text">
-          <string>스피커</string>
+          <string>Speaker Select</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignBottom|Qt::AlignLeading|Qt::AlignLeft</set>
@@ -315,7 +323,7 @@
           </size>
          </property>
          <property name="text">
-          <string>마이크</string>
+          <string>Mic Select</string>
          </property>
         </widget>
        </item>
@@ -423,13 +431,6 @@
           </widget>
          </item>
          <item>
-          <widget class="QPushButton" name="button_change_avatar">
-           <property name="text">
-            <string>Change Avatar</string>
-           </property>
-          </widget>
-         </item>
-         <item>
           <spacer name="horizontalSpacer_4">
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
@@ -445,7 +446,7 @@
          <item>
           <widget class="QPushButton" name="button_exit">
            <property name="text">
-            <string>종료</string>
+            <string>Exit</string>
            </property>
           </widget>
          </item>
@@ -495,7 +496,7 @@
             </size>
            </property>
            <property name="text">
-            <string>전송</string>
+            <string>Send</string>
            </property>
           </widget>
          </item>
@@ -504,7 +505,7 @@
        <item row="3" column="0">
         <widget class="QLabel" name="label_5">
          <property name="text">
-          <string>  메시지</string>
+          <string>Chat Message</string>
          </property>
         </widget>
        </item>
@@ -523,7 +524,7 @@
           </size>
          </property>
          <property name="text">
-          <string>  접속 사용자</string>
+          <string>Join Uesr List</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
