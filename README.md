@@ -27,6 +27,7 @@ Execute parameter
 * Due to github capacity issues, the "vox-adv-cpk.pth.tar" file must be downloaded separately.
 
 -- Goorooroomee App Test Procedure ---
+
 Precondition
 1) torch.cuda.is_available() is True
 2) Activate cuda on both Server/Client
@@ -34,7 +35,6 @@ Precondition
 
 Must start the server first and then run the client. 
 (Conditions not required after applying PeerApi)
-
 
 1. Run GooroomeeApp as a server
     parameter
