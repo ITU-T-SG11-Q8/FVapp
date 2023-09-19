@@ -137,7 +137,6 @@ class MicWorker(GrmParentThread):
         self.join_flag: bool = False
         self.connect_flag: bool = False
         self.grm_packet = BINWrapper()
-        # self.device_index = 2
 
     def set_join(self, p_join_flag: bool):
         self.join_flag = p_join_flag
@@ -210,7 +209,6 @@ class SpeakerWorker(GrmParentThread):
                 self.recv_audio_queue.clear()
                 print(f"Speaker End, Index:{self.device_index} speaker_stream:{self.speaker_stream}")
                 while self.running:
-                    # lock_speaker_audio_queue.acquire()
                     # print(f"recv audio queue size:{self.recv_audio_queue.length()}")
                     if self.recv_audio_queue.length() > 0:
                         bin_data = self.recv_audio_queue.pop()
@@ -264,7 +262,6 @@ class VideoRecvWorker(GrmParentThread):
         self.predictor = None
         self.join_flag: bool = False
         self.connect_flag: bool = False
-        # self.lock = None
         self.cur_ava = 0
 
     def set_join(self, p_join_flag: bool):
@@ -290,9 +287,6 @@ class VideoRecvWorker(GrmParentThread):
         self.predictor = GRMPredictor(
             **predictor_args
         )
-
-        # if self.lock is None:
-        #    self.lock = threading.Lock()
 
         find_key_frame = False
         grm_packet = BINWrapper()
@@ -359,12 +353,10 @@ class GrmCommWorker(GrmParentThread):
     def __init__(self, p_send_grm_queue, p_recv_video_queue, p_recv_audio_queue,
                  p_is_server, p_ip_address, p_port_number, p_device_type):
         super().__init__()
-        # self.main_windows: MainWindowClass = p_main_windows
         self.comm_bin = None
         self.bin_wrapper = None
         self.client_connected: bool = False
         self.join_flag = False
-        # self.lock = None
         self.sent_key_frame = False
         self.send_grm_queue: GRMQueue = p_send_grm_queue
         self.recv_video_queue: GRMQueue = p_recv_video_queue
@@ -388,16 +380,11 @@ class GrmCommWorker(GrmParentThread):
         self.client_connected = True
         self.sent_key_frame = False
         set_connect(True)
-        # self.lock.release()
 
     def on_client_closed(self):
         print('grm_worker:on_client_closed')
-        # self.lock.acquire()
         self.client_connected = False
         self.sent_key_frame = False
-        # self.set_join(False)
-        # self.main_windows.set_connect(False)
-        # self.lock.release()
 
     def on_client_data(self, bin_data):
         if self.client_connected is False:
@@ -487,10 +474,6 @@ class VideoProcessWorker(GrmParentThread):
             'relative': opt.relative,
             'adapt_movement_scale': opt.adapt_scale,
             'enc_downscale': opt.enc_downscale,
-            # 'listen_port': opt.listen_port,
-            # 'is_server': opt.is_server,
-            # 'server_ip': opt.server_ip,
-            # 'server_port': opt.server_port,
             'keyframe_period': opt.keyframe_period
         }
 
@@ -521,16 +504,6 @@ class VideoProcessWorker(GrmParentThread):
         if frame_orig is None:
             print("not Key Frame Make")
             return
-
-        '''
-        if self.join_flag is False:
-            print(f"Join is false and not send keyframe")
-            return
-
-        if self.connect_flag is False:
-            print(f"connect is false and not send keyframe")
-            return
-        '''
 
         b, g, r = cv2.split(frame_orig)
         frame = cv2.merge([r, g, b])
@@ -613,15 +586,8 @@ class VideoProcessWorker(GrmParentThread):
 class WebcamWorker(GrmParentThread):
     def __init__(self, p_camera_index, p_process_video_queue, p_preview_video_queue):
         super().__init__()
-        # self.view_location = view_location
-        # self.sent_key_frame = None
-        # self.bin_wrapper = None
-        # self.lock = None
         self.process_video_queue: GRMQueue = p_process_video_queue
         self.preview_video_queue: GRMQueue = p_preview_video_queue
-        # self.send_key_frame_flag: bool = False
-        # self.join_flag: bool = False
-        # self.connect_flag: bool = False
         self.change_device(p_camera_index)
 
     def run(self):
@@ -723,7 +689,6 @@ class MainWindowClass(QMainWindow, form_class):
         self.comboBox_audio_device.currentIndexChanged.connect(self.change_audio_device)
         self.comboBox_video_device.currentIndexChanged.connect(self.change_camera_device)
 
-        # self.button_send_keyframe.clicked.connect(self.worker_video.send_key_frame)
         self.button_chat_send.setDisabled(True)
         self.lineEdit_input_chat.setDisabled(True)
         self.peer_id = ""
@@ -1258,7 +1223,6 @@ def set_join(join_flag: bool):
 
 def set_connect(connect_flag: bool):
     worker_video_recv.set_connect(connect_flag)
-    # self.worker_webcam.set_connect(connect_flag)
     worker_video.set_connect(connect_flag)
     worker_mic.set_connect(connect_flag)
 
@@ -1305,9 +1269,6 @@ if __name__ == '__main__':
     preview_video_queue = GRMQueue("preview_video", False)
     send_grm_queue = GRMQueue("send_grm", False)
     process_video_queue = GRMQueue("process_video", False)
-
-    # lock_mic_audio_queue = threading.Lock()
-    # lock_speaker_audio_queue = threading.Lock()
 
     myWindow = MainWindowClass()
     room_create_ui = RoomCreateClass()
