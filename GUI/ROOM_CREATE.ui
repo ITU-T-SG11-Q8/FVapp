@@ -14,7 +14,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>방생성</string>
+   <string>Room Create</string>
   </property>
   <layout class="QGridLayout" name="gridLayout_2">
    <item row="3" column="0">
