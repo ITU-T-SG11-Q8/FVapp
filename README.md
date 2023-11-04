@@ -1,4 +1,5 @@
 Progress
+- Forked from https://github.com/alievk/avatarify-python
 - Implementation of communication module between server/client (completed, but planned to use peerApi module later)
 - Apply encoding/decoding module using avatarify (Server and client must be run on different PCs, and cuda environment must be set for each)
 - Transmit and receive key frames and avatarify feature points and display them on the screen
