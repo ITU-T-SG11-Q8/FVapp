@@ -14,6 +14,7 @@ from afy.utils import info, Tee, crop, resize
 import peerApi as Api
 
 import sys
+sys.path.append("./fomm")
 import cv2
 import numpy as np
 import pyaudio
@@ -33,6 +34,9 @@ import torch
 from dataclasses import dataclass
 from typing import List
 import time
+
+
+
 
 # 음성 출력 설정
 RATE = 44100

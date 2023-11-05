@@ -1,0 +1,10 @@
+opencv-python
+face-alignment
+pyyaml
+requests
+numpy
+torch
+scipy
+pyqt5
+pyaudio
+pygame
