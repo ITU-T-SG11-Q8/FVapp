@@ -155,10 +155,14 @@ class MicWorker(GrmParentThread):
             while self.running:
                 self.mic_interface = pyaudio.PyAudio()
                 print(f"Mic Open, Mic Index:{self.device_index}")
-                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True,
+                try:
+                    self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=2, rate=44100, input=True,
                                                           input_device_index=self.device_index,
                                                           frames_per_buffer=MIC_CHUNK)
-                if self.mic_stream is None:
+                except Exception as e:
+                    print(f"Error: {e}")
+
+                if self.mic_stream is not None:
                     continue
                 print(f"Mic End, Mic Index:{self.device_index} mic_stream:{self.mic_stream}")
 
