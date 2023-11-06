@@ -613,7 +613,13 @@ class WebcamWorker(GrmParentThread):
 
                 time.sleep(1)
                 print(f"video capture async [{camera_index}]")
-                cap = VideoCaptureAsync(camera_index)
+                try:
+                    cap = VideoCaptureAsync(camera_index)
+                except Exception as e:
+                    print(f"Error on VideoCaptureAsync : {e}")
+                    return
+
+                   
                 print(f"video capture async end [{camera_index}]")
                 time.sleep(1)
                 cap.start()
