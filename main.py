@@ -61,7 +61,7 @@ worker_speaker = None
 worker_grm_comm = None
 
 global_comm_grm_type = True  # True : gooroomee False : JAYBE
-global_spiga_loopback = True
+global_spiga_loopback = False
 
 @dataclass
 class SessionData:
