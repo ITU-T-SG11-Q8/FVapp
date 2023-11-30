@@ -12,8 +12,8 @@ class VideoCaptureAsync:
     def __init__(self, src=0, width=640, height=480):
         self.src = src
 
-        #self.cap = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
-        self.cap = cv2.VideoCapture(self.src)
+        self.cap = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
+        #self.cap = cv2.VideoCapture(self.src)
         if not self.cap.isOpened():
             raise RuntimeError("Cannot open camera")
 

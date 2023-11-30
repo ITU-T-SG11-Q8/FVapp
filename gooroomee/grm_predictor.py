@@ -37,6 +37,8 @@ def to_tensor(a):
 
 
 class GRMPredictor:
+    fa = None
+
     def __init__(self, config_path, checkpoint_path, relative=True, adapt_movement_scale=True, device=None, enc_downscale=1, listen_port=9988, server_ip='127.0.0.1', server_port=9988, is_server=False, keyframe_period=10000):
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.relative = relative
@@ -47,7 +49,7 @@ class GRMPredictor:
         self.config_path = config_path
         self.checkpoint_path = checkpoint_path
         self.generator, self.kp_detector = self.load_checkpoints()
-        self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
+        #self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
         self.source = None
         self.kp_source = None
         self.enc_downscale = enc_downscale
@@ -56,6 +58,15 @@ class GRMPredictor:
         self.server_port = server_port
         self.is_server = is_server
         self.keyframe_period = keyframe_period
+
+    def start(self):
+        if self.fa is None:
+            self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
+
+    def is_started(self):
+        if self.fa is None:
+            return False
+        return True
 
     def load_checkpoints(self):
         with open(self.config_path) as f:

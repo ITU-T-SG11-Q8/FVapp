@@ -264,7 +264,7 @@ class VideoRecvWorker(GrmParentThread):
             self.lock = threading.Lock()
 
         find_key_frame = False
-        grm_packet = BINWrapper()
+        grm_packet = BINWrapper(True)
 
         self.cur_ava = 0
         avatars, avatar_names = load_images()
@@ -416,7 +416,7 @@ class GrmCommWorker(GrmParentThread):
                         self.comm_bin.start_client(self.predictor.server_ip, self.predictor.server_port,
                                                    self.on_client_connected, self.on_client_closed, self.on_client_data)
                 if self.bin_wrapper is None:
-                    self.bin_wrapper = BINWrapper()
+                    self.bin_wrapper = BINWrapper(True)
 
             print(f'GrmCommWorker running:{self.running}')
             while self.running:
@@ -534,7 +534,7 @@ class WebcamWorker(GrmParentThread):
                     self.lock = threading.Lock()
 
                 if self.bin_wrapper is None:
-                    self.bin_wrapper = BINWrapper()
+                    self.bin_wrapper = BINWrapper(True)
 
                 self.sent_key_frame = False
                 self.pause_send = False
@@ -583,7 +583,7 @@ class WebcamWorker(GrmParentThread):
                     kp_norm = self.predictor.encoding(frame)
                     # time_kp_norm = current_milli_time()
 
-                    #bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
+                    #bin_data = self.bin_wrapper.to_bin_video(kp_norm)
                     bin_data = self.bin_wrapper.make_send_avatarify_packet(kp_norm, 0)
                     # print(f'encoding time:[{time_kp_norm- time_start}]')
 

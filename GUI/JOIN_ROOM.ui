@@ -7,11 +7,11 @@
     <x>0</x>
     <y>0</y>
     <width>539</width>
-    <height>196</height>
+    <height>314</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>방 입장</string>
+   <string>Channel Join</string>
   </property>
   <layout class="QGridLayout" name="gridLayout_2">
    <item row="0" column="0">
@@ -53,34 +53,7 @@
         </size>
        </property>
        <property name="text">
-        <string>조회</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item row="6" column="0">
-    <layout class="QHBoxLayout" name="horizontalLayout">
-     <item>
-      <widget class="QLabel" name="label_4">
-       <property name="minimumSize">
-        <size>
-         <width>80</width>
-         <height>20</height>
-        </size>
-       </property>
-       <property name="text">
-        <string>Private Key</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QLineEdit" name="lineEdit_private_key"/>
-     </item>
-     <item>
-      <widget class="QPushButton" name="button_search_private">
-       <property name="text">
-        <string>...</string>
+        <string>Query</string>
        </property>
       </widget>
      </item>
@@ -107,6 +80,78 @@
      </item>
      <item row="2" column="1">
       <widget class="QLineEdit" name="lineEdit_display_name"/>
+     </item>
+    </layout>
+   </item>
+   <item row="8" column="0">
+    <widget class="QGroupBox" name="ModeType">
+     <property name="minimumSize">
+      <size>
+       <width>520</width>
+       <height>50</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>520</width>
+       <height>50</height>
+      </size>
+     </property>
+     <property name="title">
+      <string>Mode Type</string>
+     </property>
+     <widget class="QRadioButton" name="radioButton_kdm">
+      <property name="geometry">
+       <rect>
+        <x>170</x>
+        <y>20</y>
+        <width>131</width>
+        <height>16</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>KDM (SPIGA)</string>
+      </property>
+     </widget>
+     <widget class="QRadioButton" name="radioButton_snnm">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>20</y>
+        <width>151</width>
+        <height>16</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>SNNM (avatarify)</string>
+      </property>
+     </widget>
+    </widget>
+   </item>
+   <item row="6" column="0">
+    <layout class="QHBoxLayout" name="horizontalLayout">
+     <item>
+      <widget class="QLabel" name="label_4">
+       <property name="minimumSize">
+        <size>
+         <width>80</width>
+         <height>20</height>
+        </size>
+       </property>
+       <property name="text">
+        <string>Private Key</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="lineEdit_private_key"/>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_search_private">
+       <property name="text">
+        <string>...</string>
+       </property>
+      </widget>
      </item>
     </layout>
    </item>
@@ -167,19 +212,6 @@
       </widget>
      </item>
     </layout>
-   </item>
-   <item row="8" column="0">
-    <spacer name="verticalSpacer">
-     <property name="orientation">
-      <enum>Qt::Vertical</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>20</width>
-       <height>40</height>
-      </size>
-     </property>
-    </spacer>
    </item>
   </layout>
  </widget>
