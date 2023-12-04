@@ -213,11 +213,12 @@ def start_client():
     global grm_queue
     global grm_packet
     global avatar_names
+    global global_comm_grm_type
 
     find_key_frame = False
     predictor = None
     grm_queue = GRMQueue()
-    grm_packet = BINWrapper()
+    grm_packet = BINWrapper(global_comm_grm_type)
 
     with open('config.yaml', 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
@@ -266,7 +267,7 @@ def start_client():
         if _bin_data is not None:
             while len(_bin_data) > 0:
                 _type, _value, _bin_data = grm_packet.parse_bin(_bin_data)
-                if _type == 100:
+                if _type == 1000:
                     print(f'key_frame received. {len(_value)}')
                     key_frame = grm_packet.parse_key_frame(_value)
                     # cv2.imshow('key_frame', key_frame)
@@ -297,7 +298,7 @@ def start_client():
                     # predictor.set_source_image(img)
                     predictor.reset_frames()
                     find_key_frame = True
-                elif _type == 200:
+                elif _type == 2000:
                     if find_key_frame:
                         kp_norm = grm_packet.parse_kp_norm(_value, predictor.device)
 

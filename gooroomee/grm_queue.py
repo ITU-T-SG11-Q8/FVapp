@@ -3,7 +3,7 @@ from collections import deque
 
 
 class GRMQueue:
-    def __init__(self, name, debug):
+    def __init__(self, name='', debug=False):
         #self.lock = None
         #self.lock = threading.Lock()
         self.Queues: deque = deque()

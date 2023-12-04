@@ -15,6 +15,7 @@ import peerApi as Api
 
 import sys
 sys.path.append("./fomm")
+import threading
 import cv2
 import numpy as np
 import pyaudio
@@ -26,7 +27,7 @@ from PyQt5 import QtCore
 from multiprocessing import Process
 
 from gooroomee.bin_comm import BINComm
-from gooroomee.grm_packet import BINWrapper
+from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_predictor import GRMPredictor
 from gooroomee.grm_queue import GRMQueue
 
@@ -34,16 +35,16 @@ import torch
 from dataclasses import dataclass
 from typing import List
 import time
+from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
 
-
-
+import datetime
 
 # 음성 출력 설정
 RATE = 44100
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
-SPK_CHUNK = 2**14
-MIC_CHUNK = 2**14
+SPK_CHUNK = 2 ** 14
+MIC_CHUNK = 2 ** 14
 
 log = Tee('./var/log/cam_gooroomee.log')
 form_class = uic.loadUiType("GUI/MAIN_WINDOW.ui")[0]
@@ -53,16 +54,17 @@ LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
 
 IMAGE_SIZE = 256
 
-worker_video_recv = None
-worker_video_view = None
-worker_video = None
-worker_webcam = None
-worker_video_preview = None
+worker_capture_frame = None
+worker_encode_packet = None
+worker_preview = None
 worker_mic = None
+worker_decode_packet = None
+worker_render_and_decode_frame = None
 worker_speaker = None
 worker_grm_comm = None
-global_comm_grm_type = True
 
+global_comm_grm_type = True  # True : gooroomee False : JAYBE
+global_spiga_loopback = False
 
 @dataclass
 class SessionData:
@@ -92,6 +94,10 @@ class GrmParentThread(QThread):
     def start_process(self):
         self.running = True
         self.start()
+
+    def terminate_process(self):
+        self.running = False
+        self.terminate()
 
     def pause_process(self):
         self.running = False
@@ -130,17 +136,18 @@ def draw_rect(img, rw=0.6, rh=0.8, color=(255, 0, 0), thickness=2):
 
 
 class MicWorker(GrmParentThread):
-    def __init__(self, p_send_grm_queue):
+    def __init__(self, p_send_packet_queue):
         super().__init__()
         self.mic_stream = None
         self.polled_count = 0
         self.work_done = 0
         self.receive_data = 0
-        self.send_grm_queue: GRMQueue = p_send_grm_queue
+        self.send_packet_queue: GRMQueue = p_send_packet_queue
         self.mic_interface = 0
         self.join_flag: bool = False
         self.connect_flag: bool = False
         self.grm_packet = BINWrapper()
+        # self.device_index = 2
 
     def set_join(self, p_join_flag: bool):
         self.join_flag = p_join_flag
@@ -202,6 +209,7 @@ class SpeakerWorker(GrmParentThread):
         self.speaker_stream = None
         self.recv_audio_queue: GRMQueue = p_recv_audio_queue
         self.speaker_interface = 0
+        self.join_flag: bool = False
         self.grm_packet = BINWrapper()
 
     def run(self):
@@ -217,6 +225,11 @@ class SpeakerWorker(GrmParentThread):
                 self.recv_audio_queue.clear()
                 print(f"Speaker End, Index:{self.device_index} speaker_stream:{self.speaker_stream}")
                 while self.running:
+                    if self.join_flag is False:
+                        time.sleep(0.1)
+                        continue
+
+                    # lock_speaker_audio_queue.acquire()
                     # print(f"recv audio queue size:{self.recv_audio_queue.length()}")
                     if self.recv_audio_queue.length() > 0:
                         bin_data = self.recv_audio_queue.pop()
@@ -233,7 +246,40 @@ class SpeakerWorker(GrmParentThread):
             time.sleep(0.01)
 
 
-class VideoViewWorker(GrmParentThread):
+'''
+render decoded frame
+'''
+
+
+class RenderAndDecodeFrameWorker(GrmParentThread):
+    def __init__(self, p_name, p_view_video_queue, view_location):
+        super().__init__()
+        self.process_name = p_name
+        self.view_location = view_location
+        self.view_video_queue: GRMQueue = p_view_video_queue
+
+    def run(self):
+        while True:
+            while self.running:
+                # print(f'[{self.process_name}] queue size:{self.view_video_queue.length()}')
+                while self.view_video_queue.length() > 0:
+                    frame = self.view_video_queue.pop()
+                    if frame is not None:
+                        # if myWindow.comm_mode_type is False:
+                        cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                        img = frame.copy()
+
+                        h, w, c = img.shape
+                        q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
+                        pixmap = QtGui.QPixmap.fromImage(q_img)
+                        pixmap_resized = pixmap.scaledToWidth(self.view_location.width())
+                        if pixmap_resized is not None:
+                            self.view_location.setPixmap(pixmap)
+                time.sleep(0.01)
+
+
+class PreviewWorker(GrmParentThread):
     def __init__(self, p_name, p_view_video_queue, view_location):
         super().__init__()
         self.process_name = p_name
@@ -248,7 +294,9 @@ class VideoViewWorker(GrmParentThread):
                     frame = self.view_video_queue.pop()
                     if frame is not None:
                         cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
                         img = frame.copy()
+
                         h, w, c = img.shape
                         q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
                         pixmap = QtGui.QPixmap.fromImage(q_img)
@@ -258,115 +306,153 @@ class VideoViewWorker(GrmParentThread):
                 time.sleep(0.01)
 
 
-class VideoRecvWorker(GrmParentThread):
-    def __init__(self, p_recv_video_queue, p_view_video_queue):
+class DecodePacketWorker(GrmParentThread):
+    def __init__(self, p_in_queue, p_out_queue):
         super().__init__()
         # self.main_view_location = main_view
         self.width = 0
         self.height = 0
         self.video = 0
-        self.recv_video_queue: GRMQueue = p_recv_video_queue
-        self.view_video_queue: GRMQueue = p_view_video_queue
+        self.in_queue: GRMQueue = p_in_queue
+        self.out_queue: GRMQueue = p_out_queue
         self.predictor = None
         self.join_flag: bool = False
         self.connect_flag: bool = False
+        # self.lock = None
         self.cur_ava = 0
+        self.grm_packet = BINWrapper()
+        '''SPIGA'''
+        self.spigaDecodeWrapper = None
+        '''====='''
+
+    def create_avatarify(self):
+        if self.predictor is None:
+            predictor_args = {
+                'config_path': opt.config,
+                'checkpoint_path': opt.checkpoint,
+                'relative': opt.relative,
+                'adapt_movement_scale': opt.adapt_scale,
+                'enc_downscale': opt.enc_downscale,
+            }
+
+            print(f'create_avatarify DECODER')
+            self.predictor = GRMPredictor(
+                **predictor_args
+            )
+
+    def create_spiga(self):
+        if self.spigaDecodeWrapper is None:
+            print(f'create_spiga DECODER')
+            self.spigaDecodeWrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
 
     def set_join(self, p_join_flag: bool):
+        print(f'set_join DECODER. {self.join_flag} -> {p_join_flag}')
         self.join_flag = p_join_flag
-        print(f"VideoRecvWorker join:{self.join_flag}")
 
     def set_connect(self, p_connect_flag: bool):
         self.connect_flag = p_connect_flag
-        print(f"VideoRecvWorker connect:{self.connect_flag}")
+        print(f"DecodePacketWorker connect:{self.connect_flag}")
 
     def change_avatar(self, new_avatar):
         self.predictor.set_source_image(new_avatar)
 
     def run(self):
-        predictor_args = {
-            'config_path': opt.config,
-            'checkpoint_path': opt.checkpoint,
-            'relative': opt.relative,
-            'adapt_movement_scale': opt.adapt_scale,
-            'enc_downscale': opt.enc_downscale,
-        }
-
-        self.predictor = GRMPredictor(
-            **predictor_args
-        )
+        # if self.lock is None:
+        #    self.lock = threading.Lock()
 
         find_key_frame = False
-        grm_packet = BINWrapper()
 
         while True:
             while self.running:
-                # print(f'video recv queue size:{self.recv_video_queue}')
-                while self.recv_video_queue.length() > 0:
-                    _bin_data = self.recv_video_queue.pop()
+                # print(f'video recv queue size:{self.in_queue}')
+                while self.in_queue.length() > 0:
+                    _bin_data = self.in_queue.pop()
 
-                    if _bin_data is not None:
-                        # print(f'data received. {len(_bin_data)}')
-                        if len(_bin_data) > 0:
-                            _type, _value, _bin_data = grm_packet.parse_bin(_bin_data)
-                            # print(f' type:{_type}, data received:{len(_value)}')
-                            if _type == 100:
-                                print(f'queue:[{self.recv_video_queue.length()}], '
-                                      f'key_frame received. {len(_value)}, queue_size:{self.recv_video_queue.length()}')
-                                key_frame = grm_packet.parse_key_frame(_value)
+                    if self.join_flag is False or _bin_data is None:
+                        time.sleep(0.01)
+                        continue
 
-                                w, h = key_frame.shape[:2]
-                                x = 0
-                                y = 0
+                    # print(f'data received. {len(_bin_data)}')
+                    if len(_bin_data) > 0:
+                        _type, _value, _bin_data = self.grm_packet.parse_bin(_bin_data)
+                        # print(f' type:{_type}, data received:{len(_value)}')
+                        if _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME:
+                            print(f'queue:[{self.in_queue.length()}], '
+                                  f'key_frame received. {len(_value)}, queue_size:{self.in_queue.length()}')
+                            key_frame = self.grm_packet.parse_key_frame(_value)
 
-                                if w > h:
-                                    x = int((w - h) / 2)
-                                    w = h
-                                elif h > w:
-                                    y = int((h - w) / 2)
-                                    h = w
+                            w, h = key_frame.shape[:2]
+                            x = 0
+                            y = 0
 
-                                cropped_img = key_frame[x: x + w, y: y + h]
-                                if cropped_img.ndim == 2:
-                                    cropped_img = np.tile(cropped_img[..., None], [1, 1, 3])
+                            if w > h:
+                                x = int((w - h) / 2)
+                                w = h
+                            elif h > w:
+                                y = int((h - w) / 2)
+                                h = w
 
-                                resize_img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))
+                            cropped_img = key_frame[x: x + w, y: y + h]
+                            if cropped_img.ndim == 2:
+                                cropped_img = np.tile(cropped_img[..., None], [1, 1, 3])
 
-                                img = resize_img[..., :3][..., ::-1]
-                                img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
+                            resize_img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))
 
-                                self.change_avatar(img)
-                                self.predictor.reset_frames()
-                                find_key_frame = True
-                            elif _type == 200:
-                                # print(f"recv video queue:{self.recv_video_queue.length()}")
-                                if find_key_frame:
-                                    kp_norm = grm_packet.parse_kp_norm(_value, self.predictor.device)
+                            img = resize_img[..., :3][..., ::-1]
+                            img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
 
-                                    time_start = current_milli_time()
-                                    _frame = self.predictor.decoding(kp_norm)
-                                    time_dec = current_milli_time()
+                            self.change_avatar(img)
+                            self.predictor.reset_frames()
+                            find_key_frame = True
 
-                                    # print(f'### recv dec:{time_dec - time_start}')
-                                    # cv2.imshow('client', out[..., ::-1])
-                                    self.view_video_queue.put(_frame)
-                                else:
-                                    print(f'not key frame received. {len(_value)}')
+                        elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY:
+                            # print(f"recv video queue:{self.in_queue.length()}")
+                            if find_key_frame:
+                                kp_norm = self.grm_packet.parse_kp_norm(_value, self.predictor.device)
+
+                                time_start = current_milli_time()
+                                _frame = self.predictor.decoding(kp_norm)
+                                time_dec = current_milli_time()
+
+                                # print(f'### recv dec:{time_dec - time_start}')
+                                # cv2.imshow('client', out[..., ::-1])
+                                self.out_queue.put(_frame)
+                            else:
+                                print(f'not key frame received. {len(_value)}')
+
+                        elif _type == TYPE_INDEX.TYPE_VIDEO_SPIGA:
+                            shape, features_tracker, features_spiga = self.grm_packet.parse_features(_value)
+                            _frame = self.spigaDecodeWrapper.decode(features_tracker, features_spiga)
+
+                            def convert(_img, target_type_min, target_type_max, target_type):
+                                _imin = _img.min()
+                                _imax = _img.max()
+
+                                a = (target_type_max - target_type_min) / (_imax - _imin)
+                                b = target_type_max - a * _imax
+                                new_img = (a * _img + b).astype(target_type)
+                                return new_img
+
+                            _frame = convert(_frame, 0, 255, np.uint8)
+                            self.out_queue.put(_frame)
+
                 time.sleep(0.03)
             time.sleep(0.05)
             # print('sleep')
 
 
 class GrmCommWorker(GrmParentThread):
-    def __init__(self, p_send_grm_queue, p_recv_video_queue, p_recv_audio_queue,
+    def __init__(self, p_send_packet_queue, p_recv_video_queue, p_recv_audio_queue,
                  p_is_server, p_ip_address, p_port_number, p_device_type):
         super().__init__()
+        # self.main_windows: MainWindowClass = p_main_windows
         self.comm_bin = None
         self.bin_wrapper = None
         self.client_connected: bool = False
         self.join_flag = False
+        # self.lock = None
         self.sent_key_frame = False
-        self.send_grm_queue: GRMQueue = p_send_grm_queue
+        self.send_packet_queue: GRMQueue = p_send_packet_queue
         self.recv_video_queue: GRMQueue = p_recv_video_queue
         self.recv_audio_queue: GRMQueue = p_recv_audio_queue
         self.avatar = None
@@ -388,11 +474,16 @@ class GrmCommWorker(GrmParentThread):
         self.client_connected = True
         self.sent_key_frame = False
         set_connect(True)
+        # self.lock.release()
 
     def on_client_closed(self):
         print('grm_worker:on_client_closed')
+        # self.lock.acquire()
         self.client_connected = False
         self.sent_key_frame = False
+        # self.set_join(False)
+        # self.main_windows.set_connect(False)
+        # self.lock.release()
 
     def on_client_data(self, bin_data):
         if self.client_connected is False:
@@ -400,13 +491,16 @@ class GrmCommWorker(GrmParentThread):
             set_connect(True)
         if self.join_flag is False:
             return
+
         _type, _value, _bin_data = self.grm_packet.parse_bin(bin_data)
         # print(f'server:on_client_data type:{_type}, data_len:{len(_value)}')
-        if _type == 100:    # key frame receive
+        if _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME:  # key frame receive
             self.recv_video_queue.put(bin_data)
-        elif _type == 200:  # avatarify receive
+        elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY:  # avatarify receive
             self.recv_video_queue.put(bin_data)
-        elif _type == 300:  # audio data receive
+        elif _type == TYPE_INDEX.TYPE_VIDEO_SPIGA:  # SPIGA receive
+            self.recv_video_queue.put(bin_data)
+        elif _type == TYPE_INDEX.TYPE_AUDIO:  # audio data receive
             # print(f"server:on_client_data audio type:{_type} receive_len:{len(bin_data)} value_len:{len(_value)}")
             self.recv_audio_queue.put(bin_data)
         else:
@@ -433,15 +527,12 @@ class GrmCommWorker(GrmParentThread):
                             f'connect port:{self.port_number}). device:{self.device_type}')
                         self.comm_bin.start_client(self.ip_address, self.port_number,
                                                    self.on_client_connected, self.on_client_closed, self.on_client_data)
-                if self.bin_wrapper is None:
-                    self.bin_wrapper = BINWrapper()
-
             print(f'GrmCommWorker running:{self.running}')
             while self.running:
-                # print(f'GrmCommWorker queue size:{self.send_grm_queue.length()}')
-                if self.send_grm_queue.length() > 0:
-                    # print(f'GrmCommWorker pop queue size:{self.send_grm_queue.length()}')
-                    bin_data = self.send_grm_queue.pop()
+                # print(f'GrmCommWorker queue size:{self.send_packet_queue.length()}')
+                if self.send_packet_queue.length() > 0:
+                    # print(f'GrmCommWorker pop queue size:{self.send_packet_queue.length()}')
+                    bin_data = self.send_packet_queue.pop()
                     if bin_data is not None:
                         if global_comm_grm_type is True:
                             if self.join_flag is True:
@@ -462,45 +553,68 @@ class GrmCommWorker(GrmParentThread):
                 time.sleep(0.01)
 
 
-class VideoProcessWorker(GrmParentThread):
-    def __init__(self, p_send_grm_queue, p_process_video_queue):
+'''
+encode packet
+'''
+
+
+class EncodePacketWorker(GrmParentThread):
+    def __init__(self, p_in_queue, p_out_queue):
         super().__init__()
         self.width = 0
         self.height = 0
         self.sent_key_frame = False
         self.bin_wrapper = None
-        self.process_video_queue: GRMQueue = p_process_video_queue
-        self.send_grm_queue: GRMQueue = p_send_grm_queue
+        self.in_queue: GRMQueue = p_in_queue
+        self.out_queue: GRMQueue = p_out_queue
         self.send_key_frame_flag: bool = False
         self.join_flag: bool = False
         self.connect_flag: bool = False
         self.avatar_kp = None
+        self.grm_packet = BINWrapper()
+        self.predictor = None
+        '''SPIGA'''
+        self.spigaEncodeWrapper = None
+        ''''''
 
-        predictor_args = {
-            'config_path': opt.config,
-            'checkpoint_path': opt.checkpoint,
-            'relative': opt.relative,
-            'adapt_movement_scale': opt.adapt_scale,
-            'enc_downscale': opt.enc_downscale,
-            'keyframe_period': opt.keyframe_period
-        }
+    def create_avatarify(self):
+        if self.predictor is None:
+            predictor_args = {
+                'config_path': opt.config,
+                'checkpoint_path': opt.checkpoint,
+                'relative': opt.relative,
+                'adapt_movement_scale': opt.adapt_scale,
+                'enc_downscale': opt.enc_downscale,
+                # 'listen_port': opt.listen_port,
+                # 'is_server': opt.is_server,
+                # 'server_ip': opt.server_ip,
+                # 'server_port': opt.server_port,
+                'keyframe_period': opt.keyframe_period
+            }
 
-        self.predictor = GRMPredictor(
-            **predictor_args
-        )
+            print(f'create_avatarify ENCODER')
+            self.predictor = GRMPredictor(
+                **predictor_args
+            )
+
+    def create_spiga(self):
+        if self.spigaEncodeWrapper is None:
+            print(f'create_spiga ENCODER')
+            self.spigaEncodeWrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
 
     def set_join(self, p_join_flag: bool):
+        print(f'set_join DECODER. {self.join_flag} -> {p_join_flag}')
         self.join_flag = p_join_flag
-        print(f"WebcamWorker join:{self.join_flag}")
+        self.bin_wrapper = None
+        self.in_queue.clear()
 
     def set_connect(self, p_connect_flag: bool):
         self.connect_flag = p_connect_flag
-        print(f"WebcamWorker connect:{self.connect_flag}")
+        print(f"CaptureFrameWorker connect:{self.connect_flag}")
 
     def send_key_frame(self):
         self.send_key_frame_flag = True
         if self.join_flag is True:
-            print('send key frame true.....')
             self.send_key_frame_flag = True
 
     def change_avatar(self, new_avatar):
@@ -513,6 +627,16 @@ class VideoProcessWorker(GrmParentThread):
             print("not Key Frame Make")
             return
 
+        '''
+        if self.join_flag is False:
+            print(f"Join is false and not send keyframe")
+            return
+
+        if self.connect_flag is False:
+            print(f"connect is false and not send keyframe")
+            return
+        '''
+
         b, g, r = cv2.split(frame_orig)
         frame = cv2.merge([r, g, b])
 
@@ -520,9 +644,9 @@ class VideoProcessWorker(GrmParentThread):
 
         bin_data = self.bin_wrapper.to_bin_key_frame(key_frame[1])
 
-        self.process_video_queue.clear()
-        self.send_grm_queue.clear()
-        self.send_grm_queue.put(bin_data)
+        self.in_queue.clear()
+        self.out_queue.clear()
+        self.out_queue.put(bin_data)
         print(f'######## send_key_frame. len:[{len(bin_data)}], resolution:{frame.shape[0]} x {frame.shape[1]} '
               f'size:{len(bin_data)}')
         self.predictor.reset_frames()
@@ -552,37 +676,57 @@ class VideoProcessWorker(GrmParentThread):
         self.sent_key_frame = True
 
     def run(self):
+        # test
+        global worker_grm_comm
+
         frame_proportion = 0.9
         frame_offset_x = 0
         frame_offset_y = 0
+
         while True:
-            self.sent_key_frame = False
-            if self.bin_wrapper is None:
-                self.bin_wrapper = BINWrapper()
             while self.running:
+                self.sent_key_frame = False
+
                 # print(f"recv video queue read .....")
-                while self.process_video_queue.length() > 0:
+                while self.in_queue.length() > 0:
                     # print(f"recv video data .....")
-                    frame = self.process_video_queue.pop()
-                    if frame is None:
-                        time.sleep(0.01)
+                    frame = self.in_queue.pop()
+
+                    if self.join_flag is False:
+                        time.sleep(0.001)
                         continue
 
+                    if frame is None or self.join_flag is False:
+                        time.sleep(0.1)
+                        continue
+
+                    # if myWindow.comm_mode_type is False:
                     frame = frame[..., ::-1]
+
                     frame_orig = frame.copy()
-                    frame, (frame_offset_x, frame_offset_y) = crop(frame, p=frame_proportion, offset_x=frame_offset_x,
+                    frame, (frame_offset_x, frame_offset_y) = crop(frame, p=frame_proportion,
+                                                                   offset_x=frame_offset_x,
                                                                    offset_y=frame_offset_y)
                     frame = resize(frame, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+
                     bin_data = None
-                    if self.sent_key_frame is True:
-                        kp_norm = self.predictor.encoding(frame)
-                        bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
+                    if myWindow.comm_mode_type is True:
+                        features_tracker, features_spiga = self.spigaEncodeWrapper.encode(frame)
+                        if features_tracker is not None and features_spiga is not None:
+                            bin_data = self.grm_packet.to_bin_features(frame, features_tracker, features_spiga)
+                    else:
+                        if self.predictor.is_server() is False:
+                            self.predictor.start()
+
+                        if self.sent_key_frame is True:
+                            kp_norm = self.predictor.encoding(frame)
+                            bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
 
                     if bin_data is not None:
-                        # print(f' send_grm_queue size:[{self.send_grm_queue.length()}]')
-                        self.send_grm_queue.put(bin_data)
+                        # print(f' out_queue size:[{self.out_queue.length()}]')
+                        self.out_queue.put(bin_data)
 
-                    if self.send_key_frame_flag is True:
+                    if myWindow.comm_mode_type is False and self.send_key_frame_flag is True:
                         self.key_frame_send(frame_orig)
                         self.send_key_frame_flag = False
                     else:
@@ -591,11 +735,18 @@ class VideoProcessWorker(GrmParentThread):
             time.sleep(0.01)
 
 
-class WebcamWorker(GrmParentThread):
-    def __init__(self, p_camera_index, p_process_video_queue, p_preview_video_queue):
+class CaptureFrameWorker(GrmParentThread):
+    def __init__(self, p_camera_index, p_out_process_video_capture_queue, p_out_preview_video_queue):
         super().__init__()
-        self.process_video_queue: GRMQueue = p_process_video_queue
-        self.preview_video_queue: GRMQueue = p_preview_video_queue
+        # self.view_location = view_location
+        # self.sent_key_frame = None
+        # self.bin_wrapper = None
+        # self.lock = None
+        self.out_process_video_capture_queue: GRMQueue = p_out_process_video_capture_queue
+        self.out_preview_video_queue: GRMQueue = p_out_preview_video_queue
+        # self.send_key_frame_flag: bool = False
+        # self.join_flag: bool = False
+        # self.connect_flag: bool = False
         self.change_device(p_camera_index)
 
     def run(self):
@@ -624,7 +775,7 @@ class WebcamWorker(GrmParentThread):
                 time.sleep(1)
                 cap.start()
 
-                self.process_video_queue.clear()
+                self.out_process_video_capture_queue.clear()
                 frame_proportion = 0.9
                 frame_offset_x = 0
                 frame_offset_y = 0
@@ -640,19 +791,23 @@ class WebcamWorker(GrmParentThread):
                         time.sleep(1)
                         break
 
-                    self.process_video_queue.put(frame)
+                    _frame = frame.copy()
+                    if self.out_process_video_capture_queue.length() < 3:
+                        self.out_process_video_capture_queue.put(_frame)
 
                     frame = frame[..., ::-1]
-                    frame, (frame_offset_x, frame_offset_y) = crop(frame, p=frame_proportion, offset_x=frame_offset_x,
+                    frame, (frame_offset_x, frame_offset_y) = crop(frame, p=frame_proportion,
+                                                                   offset_x=frame_offset_x,
                                                                    offset_y=frame_offset_y)
+
+                    # if myWindow.comm_mode_type is False:
                     frame = resize(frame, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
                     preview_frame = frame.copy()
-
-                    draw_rect(preview_frame)
+                    # draw_rect(preview_frame)
 
                     # print(f"preview put.....")
-                    self.preview_video_queue.put(preview_frame)
+                    self.out_preview_video_queue.put(preview_frame)
                     time.sleep(0.03)
 
                 print('# video interface release index = [', self.device_index, ']')
@@ -661,6 +816,9 @@ class WebcamWorker(GrmParentThread):
 
 
 class MainWindowClass(QMainWindow, form_class):
+    alived = True
+    comm_mode_type = False  # True : KDM, False : SNNM
+
     def __init__(self):
         super().__init__()
         self.setupUi(self)
@@ -670,24 +828,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.camera_device_init(5)
         self.audio_device_init()
 
-        predictor_args = {
-            'config_path': opt.config,
-            'checkpoint_path': opt.checkpoint,
-            'relative': opt.relative,
-            'adapt_movement_scale': opt.adapt_scale,
-            'enc_downscale': opt.enc_downscale,
-            'listen_port': opt.listen_port,
-            'is_server': opt.is_server,
-            'server_ip': opt.server_ip,
-            'server_port': opt.server_port,
-            'keyframe_period': opt.keyframe_period
-        }
-
-        self.predictor = GRMPredictor(
-            **predictor_args
-        )
-
-        self.keyframe_period = self.predictor.keyframe_period
+        self.keyframe_period = opt.keyframe_period
         if self.keyframe_period is None:
             self.keyframe_period = 10000
 
@@ -703,6 +844,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.comboBox_audio_device.currentIndexChanged.connect(self.change_audio_device)
         self.comboBox_video_device.currentIndexChanged.connect(self.change_camera_device)
 
+        # self.button_send_keyframe.clicked.connect(self.worker_encode_packet.send_key_frame)
         self.button_chat_send.setDisabled(True)
         self.lineEdit_input_chat.setDisabled(True)
         self.peer_id = ""
@@ -711,13 +853,14 @@ class MainWindowClass(QMainWindow, form_class):
         self.timer.timeout.connect(self.timeout)
 
     def timeout(self):
-        global worker_video
-        worker_video.send_key_frame()
+        global worker_encode_packet
+        worker_encode_packet.send_key_frame()
 
     def create_room(self):
         if self.create_button.text() == "Channel Create":
             room_create_ui.clear_value()
             room_create_ui.show()
+
         elif self.create_button.text() == "Channel Delete":
             self.remove_room()
 
@@ -763,17 +906,21 @@ class MainWindowClass(QMainWindow, form_class):
 
     def join_room(self):
         if myWindow.join_button.text() == "Channel Join":
+            if myWindow.comm_mode_type is True:
+                join_ui.radioButton_kdm.setChecked(True)
+            else:
+                join_ui.radioButton_snnm.setChecked(True)
             join_ui.show()
         elif myWindow.join_button.text() == "Channel Leave":
             self.leave_room()
 
     def change_camera_device(self):
-        global worker_webcam
+        global worker_capture_frame
         print('camera index change start')
-        worker_webcam.pause_process()
+        worker_capture_frame.pause_process()
         time.sleep(1)
-        worker_webcam.change_device(self.comboBox_video_device.currentData())
-        worker_webcam.resume_process()
+        worker_capture_frame.change_device(self.comboBox_video_device.currentData())
+        worker_capture_frame.resume_process()
         print('camera index change end')
 
     def change_mic_device(self):
@@ -800,6 +947,11 @@ class MainWindowClass(QMainWindow, form_class):
             display_name = join_ui.lineEdit_display_name.text()
             private_key = join_ui.lineEdit_private_key.text()
             public_key = join_ui.lineEdit_public_key.text()
+
+            if join_ui.radioButton_kdm.isChecked() is True:
+                myWindow.comm_mode_type = True
+            else:
+                myWindow.comm_mode_type = False
 
             self.join_button.setText("Channel Leave")
             self.room_information_button.setDisabled(False)
@@ -944,6 +1096,7 @@ class MainWindowClass(QMainWindow, form_class):
 
             if creation_res.code is Api.ResponseCode.Success:
                 print("\nCreation success.", creation_res.overlayId)
+
                 self.join_session.overlayId = creation_res.overlayId
                 self.join_session.ownerId = owner_id
                 myWindow.create_button.setText("Channel Delete")
@@ -957,6 +1110,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_session.overlayId = ""
         elif myWindow.create_button.text() == "Channel Delete":
             self.remove_room()
+            all_stop_worker()
 
     def information_room(self):
         room_information_ui.lineEdit_overlay_id.setText(self.join_session.overlayId)
@@ -1030,6 +1184,34 @@ class MainWindowClass(QMainWindow, form_class):
             self.listWidget.addItem(i.display_name)
 
     def exit_button(self):
+        self.alived = False
+
+        global worker_decode_packet
+        global worker_render_and_decode_frame
+        global worker_encode_packet
+        global worker_capture_frame
+        global worker_preview
+        global worker_mic
+        global worker_speaker
+        global worker_grm_comm
+
+        if worker_decode_packet is not None:
+            worker_decode_packet.terminate_process()
+        if worker_render_and_decode_frame is not None:
+            worker_render_and_decode_frame.terminate_process()
+        if worker_encode_packet is not None:
+            worker_encode_packet.terminate_process()
+        if worker_capture_frame is not None:
+            worker_capture_frame.terminate_process()
+        if worker_preview is not None:
+            worker_preview.terminate_process()
+        if worker_mic is not None:
+            worker_mic.terminate_process()
+        if worker_speaker is not None:
+            worker_speaker.terminate_process()
+        if worker_grm_comm is not None:
+            worker_grm_comm.terminate_process()
+
         self.close()
 
     def camera_device_init(self, max_count):
@@ -1140,77 +1322,78 @@ class RoomInformationClass(QDialog):
 
 
 def all_start_worker():
-    global worker_video_recv
-    global worker_video_view
-    global worker_video
-    global worker_webcam
-    global worker_video_preview
+    global worker_decode_packet
+    global worker_render_and_decode_frame
+    global worker_encode_packet
+    global worker_capture_frame
+    global worker_preview
     global worker_mic
     global worker_speaker
     global worker_grm_comm
 
-    if worker_video_recv is not None:
-        worker_video_recv.start_process()
+    if worker_capture_frame is not None:
+        worker_capture_frame.start_process()
     else:
-        worker_video_recv = VideoRecvWorker(recv_video_queue, main_view_video_queue)
+        worker_capture_frame = CaptureFrameWorker(myWindow.comboBox_video_device.currentIndex(),
+                                                  process_video_capture_queue, preview_video_queue)
 
-    if worker_video_view is not None:
-        worker_video_view.start_process()
+    if worker_preview is not None:
+        worker_preview.start_process()
     else:
-        worker_video_view = VideoViewWorker("main_view", main_view_video_queue, myWindow.main_view)
+        worker_preview = PreviewWorker("preview", preview_video_queue, myWindow.preview)
 
-    if worker_video is not None:
-        worker_video.start_process()
+    if worker_encode_packet is not None:
+        worker_encode_packet.start_process()
     else:
-        worker_video = VideoProcessWorker(send_grm_queue, process_video_queue)
-
-    if worker_webcam is not None:
-        worker_webcam.start_process()
-    else:
-        worker_webcam = WebcamWorker(myWindow.comboBox_video_device.currentIndex(),
-                                     process_video_queue, preview_video_queue)
-
-    if worker_video_preview is not None:
-        worker_video_preview.start_process()
-    else:
-        worker_video_preview = VideoViewWorker("preview", preview_video_queue, myWindow.preview)
+        worker_encode_packet = EncodePacketWorker(process_video_capture_queue, send_packet_queue)
 
     if worker_mic is not None:
         worker_mic.start_process()
     else:
-        worker_mic = MicWorker(send_grm_queue)
+        worker_mic = MicWorker(send_packet_queue)
+
+    if worker_grm_comm is not None:
+        worker_grm_comm.start_process()
+    else:
+        worker_grm_comm = GrmCommWorker(send_packet_queue, recv_video_queue, recv_audio_queue)
+
+    if worker_decode_packet is not None:
+        worker_decode_packet.start_process()
+    else:
+        worker_decode_packet = DecodePacketWorker(recv_video_queue, main_view_video_queue)
+
+    if worker_render_and_decode_frame is not None:
+        worker_render_and_decode_frame.start_process()
+    else:
+        worker_render_and_decode_frame = RenderAndDecodeFrameWorker("main_view", main_view_video_queue,
+                                                                    myWindow.main_view)
 
     if worker_speaker is not None:
         worker_speaker.start_process()
     else:
         worker_speaker = SpeakerWorker(recv_audio_queue)
 
-    if worker_grm_comm is not None:
-        worker_grm_comm.start_process()
-    else:
-        worker_grm_comm = GrmCommWorker(send_grm_queue, recv_video_queue, recv_audio_queue)
-
 
 def all_stop_worker():
     global worker_speaker
-    global worker_video_recv
-    global worker_video
-    global worker_webcam
-    global worker_video_preview
+    global worker_decode_packet
+    global worker_encode_packet
+    global worker_capture_frame
+    global worker_preview
     global worker_mic
     global worker_speaker
     global worker_grm_comm
 
-    if worker_video_recv is not None:
-        worker_video_recv.pause_process()
-    if worker_video_view is not None:
-        worker_video_view.pause_process()
-    if worker_video is not None:
-        worker_video.pause_process()
-    if worker_webcam is not None:
-        worker_webcam.pause_process()
-    if worker_video_preview is not None:
-        worker_video_preview.pause_process()
+    if worker_decode_packet is not None:
+        worker_decode_packet.pause_process()
+    if worker_render_and_decode_frame is not None:
+        worker_render_and_decode_frame.pause_process()
+    if worker_encode_packet is not None:
+        worker_encode_packet.pause_process()
+    if worker_capture_frame is not None:
+        worker_capture_frame.pause_process()
+    if worker_preview is not None:
+        worker_preview.pause_process()
     if worker_mic is not None:
         worker_mic.pause_process()
     if worker_speaker is not None:
@@ -1221,26 +1404,36 @@ def all_stop_worker():
 
 def set_join(join_flag: bool):
     global worker_speaker
-    global worker_video_recv
-    global worker_video
-    global worker_webcam
-    global worker_video_preview
+    global worker_decode_packet
+    global worker_encode_packet
+    global worker_capture_frame
+    global worker_preview
     global worker_mic
     global worker_speaker
     global worker_grm_comm
 
-    worker_video_recv.set_join(join_flag)
-    worker_video.set_join(join_flag)
+    if join_flag is True:
+        if myWindow.comm_mode_type is True:
+            worker_decode_packet.create_spiga()
+            worker_encode_packet.create_spiga()
+        else:
+            worker_decode_packet.create_avatarify()
+            worker_encode_packet.create_avatarify()
+
+    worker_decode_packet.set_join(join_flag)
+    worker_encode_packet.set_join(join_flag)
     worker_grm_comm.set_join(join_flag)
     worker_mic.set_join(join_flag)
 
 
 def set_connect(connect_flag: bool):
-    worker_video_recv.set_connect(connect_flag)
-    worker_video.set_connect(connect_flag)
+    worker_decode_packet.set_connect(connect_flag)
+    # self.worker_capture_frame.set_connect(connect_flag)
+    worker_encode_packet.set_connect(connect_flag)
     worker_mic.set_connect(connect_flag)
 
 
+'''
 def get_predictor():
     _predictor_args = {
         'config_path': opt.config,
@@ -1253,12 +1446,14 @@ def get_predictor():
         'server_ip': opt.server_ip,
         'server_port': opt.server_port,
         'keyframe_period': opt.keyframe_period
+        , 'device': 'cpu'
     }
+
     _predictor = GRMPredictor(
         **_predictor_args
     )
     return _predictor
-
+'''
 
 if __name__ == '__main__':
     # import os
@@ -1268,37 +1463,79 @@ if __name__ == '__main__':
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
 
-    predictor = get_predictor()
     port_number = 0
     ip_address = ""
-    if predictor.is_server is True:
-        port_number = predictor.listen_port
+    if opt.is_server is True:
+        port_number = opt.listen_port
     else:
-        ip_address = predictor.server_ip
-        port_number = predictor.server_port
+        ip_address = opt.server_ip
+        port_number = opt.server_port
 
     recv_audio_queue = GRMQueue("recv_audio", False)
     recv_video_queue = GRMQueue("recv_video", False)
     main_view_video_queue = GRMQueue("main_view_video", False)
     preview_video_queue = GRMQueue("preview_video", False)
-    send_grm_queue = GRMQueue("send_grm", False)
-    process_video_queue = GRMQueue("process_video", False)
+    send_packet_queue = GRMQueue("send_packet", False)
+    process_video_capture_queue = GRMQueue("video_capture", False)
+
+    # lock_mic_audio_queue = threading.Lock()
+    # lock_speaker_audio_queue = threading.Lock()
 
     myWindow = MainWindowClass()
     room_create_ui = RoomCreateClass()
     join_ui = RoomJoinClass()
     room_information_ui = RoomInformationClass()
 
-    worker_video_recv = VideoRecvWorker(recv_video_queue, main_view_video_queue)
-    worker_video_view = VideoViewWorker("main_view", main_view_video_queue, myWindow.main_view)
-    worker_video = VideoProcessWorker(send_grm_queue, process_video_queue)
-    worker_webcam = WebcamWorker(myWindow.comboBox_video_device.currentIndex(),
-                                 process_video_queue, preview_video_queue)
-    worker_video_preview = VideoViewWorker("preview", preview_video_queue, myWindow.preview)
-    worker_mic = MicWorker(send_grm_queue)
-    worker_speaker = SpeakerWorker(recv_audio_queue)
-    worker_grm_comm = GrmCommWorker(send_grm_queue, recv_video_queue, recv_audio_queue,
-                                    predictor.is_server, ip_address, port_number, predictor.device)
+#    worker_capture_frame = CaptureFrameWorker(myWindow.comboBox_video_device.currentIndex(),
+                                            #   process_video_capture_queue, preview_video_queue)
+    # worker_preview = PreviewWorker("preview", preview_video_queue, myWindow.preview)
+
+    # if global_spiga_loopback is True:
+    #     worker_encode_packet = EncodePacketWorker(process_video_capture_queue, recv_video_queue)
+    # else:
+    #     worker_encode_packet = EncodePacketWorker(process_video_capture_queue, send_packet_queue)
+
+    # worker_mic = MicWorker(send_packet_queue)
+
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # worker_grm_comm = GrmCommWorker(send_packet_queue, recv_video_queue, recv_audio_queue,
+    #                                 opt.is_server, ip_address, port_number, device)
+
+    # worker_decode_packet = DecodePacketWorker(recv_video_queue, main_view_video_queue)
+    # worker_render_and_decode_frame = RenderAndDecodeFrameWorker("main_view", main_view_video_queue, myWindow.main_view)
+
+    # worker_speaker = SpeakerWorker(recv_audio_queue)
+
+    # worker_capture_frame = CaptureFrameWorker(myWindow.comboBox_video_device.currentIndex(),
+    #                                           process_video_capture_queue, preview_video_queue)
+    # worker_preview = PreviewWorker("preview", preview_video_queue, myWindow.preview)
+
+    # if global_spiga_loopback is True:
+    #     worker_encode_packet = EncodePacketWorker(process_video_capture_queue, recv_video_queue)
+    # else:
+    #     worker_encode_packet = EncodePacketWorker(process_video_capture_queue, send_packet_queue)
+
+    # worker_mic = MicWorker(send_packet_queue)
+
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # worker_grm_comm = GrmCommWorker(send_packet_queue, recv_video_queue, recv_audio_queue,
+    #                                 opt.is_server, ip_address, port_number, device)
+
+    # worker_decode_packet = DecodePacketWorker(recv_video_queue, main_view_video_queue)
+    # worker_render_and_decode_frame = RenderAndDecodeFrameWorker("main_view", main_view_video_queue, myWindow.main_view)
+
+    # worker_speaker = SpeakerWorker(recv_audio_queue)
+
+    # worker_video_recv = VideoRecvWorker(recv_video_queue, main_view_video_queue)
+    # worker_video_view = VideoViewWorker("main_view", main_view_video_queue, myWindow.main_view)
+    # worker_video = VideoProcessWorker(send_grm_queue, process_video_queue)
+    # worker_webcam = WebcamWorker(myWindow.comboBox_video_device.currentIndex(),
+    #                              process_video_queue, preview_video_queue)
+    # worker_video_preview = VideoViewWorker("preview", preview_video_queue, myWindow.preview)
+    # worker_mic = MicWorker(send_grm_queue)
+    # worker_speaker = SpeakerWorker(recv_audio_queue)
+    # worker_grm_comm = GrmCommWorker(send_grm_queue, recv_video_queue, recv_audio_queue,
+    #                                 predictor.is_server, ip_address, port_number, predictor.device)
 
     myWindow.room_information_button.setDisabled(True)
     myWindow.show()
@@ -1306,5 +1543,3 @@ if __name__ == '__main__':
     all_start_worker()
 
     sys.exit(app.exec_())
-
-    
