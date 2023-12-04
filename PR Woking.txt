@@ -1,0 +1,15 @@
+Purpose
+- Communication between remote locations using avatarify
+- Changed to enable use in low-bandwidth network configurations
+- Changed the GUI to make it easier to us
+
+Implementation change
+- Remote communication between two computers
+- GUI configuration for easy verification
+- Documenting the build environment
+- Documentation of the execution environment
+- Queue communication between threads or processes
+- Implementation of video communication through key point and key frame transmission
+
+Usage
+- Please refer to README.md 

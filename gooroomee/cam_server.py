@@ -17,6 +17,7 @@ import time
 from grm_predictor import GRMPredictor
 from bin_comm import BINComm
 from grm_packet import BINWrapper
+from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
 
 log = Tee('./var/log/cam_gooroomee.log')
 
@@ -264,6 +265,8 @@ def on_client_data(bin_data):
     # print(bin_data)
     pass
 
+def current_milli_time():
+    return round(time.time() * 1000)
 
 def start_server():
     global lock
@@ -274,40 +277,54 @@ def start_server():
     global server
     global predictor
     global bin_wrapper
+    global global_comm_mode_type
 
     lock = threading.Lock()
     frame_orig = []
     client_connected = False
     sent_key_frame = False
     pause_send = False
-    bin_wrapper = BINWrapper()
-
-    with open('config.yaml', 'r') as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-
     image_size = 256
 
-    log('Loading Predictor')
-    predictor_args = {
-        'config_path': opt.config,
-        'checkpoint_path': opt.checkpoint,
-        'relative': opt.relative,
-        'adapt_movement_scale': opt.adapt_scale,
-        'enc_downscale': opt.enc_downscale,
-        'listen_port': opt.listen_port,
-        'is_server': opt.is_server,
-    }
+    bin_wrapper = BINWrapper(global_comm_mode_type)
 
-    predictor = GRMPredictor(
-        **predictor_args
-    )
+    '''avatarify'''
+    config = None
+    avatars = None
+    avatar_names = None
+    find_keyframe = False
+    predictor = None
+    ''''''
 
-    print(f' opt:is-server:{predictor.is_server}')
-    print(f' opt:listen_port:{predictor.listen_port}')
-    if predictor.is_server is False:
-        print('option: is-server is False')
-        print('This process is server...Exit')
-        exit()
+    '''SPIGA'''
+    spigaWrapper = None
+    ''''''
+
+    if global_comm_mode_type == False:
+        with open('config.yaml', 'r') as f:
+            config = yaml.load(f, Loader=yaml.FullLoader)
+
+        log('Loading Predictor')
+        predictor_args = {
+            'config_path': opt.config,
+            'checkpoint_path': opt.checkpoint,
+            'relative': opt.relative,
+            'adapt_movement_scale': opt.adapt_scale,
+            'enc_downscale': opt.enc_downscale,
+            'listen_port': opt.listen_port,
+            'is_server': opt.is_server,
+        }
+
+        predictor = GRMPredictor(
+            **predictor_args
+        )
+
+        print(f' opt:is-server:{predictor.is_server}')
+        print(f' opt:listen_port:{predictor.listen_port}')
+        if predictor.is_server is False:
+            print('option: is-server is False')
+            print('This process is server...Exit')
+            exit()
 
     server = BINComm()
     server.start_server(predictor.listen_port, on_client_connected, on_client_closed, on_client_data)
@@ -323,15 +340,17 @@ def start_server():
     cap = VideoCaptureAsync(cam_id)
     cap.start()
 
-    avatars, avatar_names = load_images()
-
     ret, frame = cap.read()
     stream_img_size = frame.shape[1], frame.shape[0]
 
-    cur_ava = 0
-    avatar = None
-    change_avatar(predictor, avatars[cur_ava])
-    passthrough = False
+    if global_comm_mode_type == True:
+        spigaWrapper = SPIGAWrapper(frame.shape[1], frame.shape[0], frame.shape[2])
+    else:
+        avatars, avatar_names = load_images()
+        cur_ava = 0
+        avatar = None
+        change_avatar(predictor, avatars[cur_ava])
+        passthrough = False
 
     # cv2.namedWindow('server', cv2.WINDOW_GUI_NORMAL)
     # cv2.moveWindow('server', 500, 250)
@@ -340,10 +359,8 @@ def start_server():
     frame_offset_x = 0
     frame_offset_y = 0
 
-    find_keyframe = False
-
     fps_hist = []
-    fps = 0
+    fps = 30
 
     try:
         while True:
@@ -375,40 +392,45 @@ def start_server():
 
             frame = resize(frame, (image_size, image_size))[..., :3]
 
-            if find_keyframe:
-                if is_new_frame_better(avatar, frame, predictor):
-                    log("Taking new frame!")
-                    green_overlay = True
-                    predictor.reset_frames()
+            if global_comm_mode_type == False:
+                if find_keyframe:
+                    if is_new_frame_better(avatar, frame, predictor):
+                        log("Taking new frame!")
+                        green_overlay = True
+                        predictor.reset_frames()
 
             timing['preproc'] = tt.toc()
 
             tt.tic()
 
-            def current_milli_time():
-                return round(time.time() * 1000)
-
             send_bin = False
             lock.acquire()
-            if client_connected is True:
-                if sent_key_frame is True and pause_send is False:
+            if global_comm_mode_type == True:
+                if client_connected is True:
                     send_bin = True
+            else:
+                if client_connected is True:
+                    if sent_key_frame is True and pause_send is False:
+                        send_bin = True
             lock.release()
 
-            time_start = current_milli_time()
-            kp_norm = predictor.encoding(frame)
-            time_kp_norm = current_milli_time()
-            print(f'### enc_time:{time_kp_norm - time_start}')
+            #time_start = current_milli_time()
+            #kp_norm = predictor.encoding(frame)
+            #time_kp_norm = current_milli_time()
+            #print(f'### enc_time:{time_kp_norm - time_start}')
 
             if send_bin is True:
                 time_start = current_milli_time()
-                kp_norm = predictor.encoding(frame)
-                time_kp_norm = current_milli_time()
 
-                bin_data = bin_wrapper.to_bin_kp_norm(kp_norm)
+                bin_data = None
+                if global_comm_mode_type == True:
+                    bin_data = spigaWrapper.encode(frame)
+                else:
+                    kp_norm = predictor.encoding(frame)
+                    bin_data = bin_wrapper.to_bin_video(kp_norm)
 
-                print(f'### enc_time:{time_kp_norm - time_start}')
-                server.send_bin(bin_data)
+                if bin_data is not None:
+                    server.send_bin(bin_data)
 
             timing['predict'] = tt.toc()
 
@@ -425,9 +447,9 @@ def start_server():
             preview_frame = frame.copy()
             timing['postproc'] = tt.toc()
 
-            if find_keyframe:
-                preview_frame = cv2.putText(preview_frame, display_string, (10, 220), 0, 0.5 * image_size / 256,
-                                            (255, 255, 255), 1)
+            if global_comm_mode_type == False:
+                if find_keyframe:
+                    preview_frame = cv2.putText(preview_frame, display_string, (10, 220), 0, 0.5 * image_size / 256, (255, 255, 255), 1)
 
             draw_rect(preview_frame)
             cv2.imshow('server preview', preview_frame[..., ::-1])
