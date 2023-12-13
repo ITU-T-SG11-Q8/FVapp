@@ -3,8 +3,8 @@ import cv2
 import pkg_resources
 
 # My libs
-import SPIGA.spiga.demo.analyze.track.get_tracker as tr
-import SPIGA.spiga.demo.analyze.extract.spiga_processor as pr_spiga
+import spiga.demo.analyze.track.get_tracker as tr
+import spiga.demo.analyze.extract.spiga_processor as pr_spiga
 from SPIGA.spiga.demo.analyze.analyzer import VideoAnalyzer
 from SPIGA.spiga.demo.analyze.analyzer import VideoEncodeAnalyzer
 from SPIGA.spiga.demo.analyze.analyzer import VideoDecodeAnalyzer

@@ -125,12 +125,6 @@ class BINWrapper:
 
         return to_bin.tobytes()
 
-    def to_bin_audio_data(self, frame):
-        _type = 300
-        to_bin = self.to_tlv(_type, frame)
-
-        return to_bin.tobytes()
-
     def parse_bin(self, bin_data):
         _type, length, value, bin_data = self.from_tlv(bin_data)
         return _type, value, bin_data
