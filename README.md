@@ -16,7 +16,7 @@ Future progress
 
 Build Configuration
   * Environment variable
-    - PYTHONUNBUFFERED=1;PYTHONPATH=%PYTHONPATH%\\\;\;[Working Directory]\\;[Working Directory]\fomm
+    - PYTHONUNBUFFERED=1;PYTHONPATH=%PYTHONPATH%\\\;\;[Working Directory]\\;[Working Directory]\fomm;[Working Directory]\SPIGA
 
 Execute parameter
   * Server  
