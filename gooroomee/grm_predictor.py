@@ -2,9 +2,9 @@ from scipy.spatial import ConvexHull
 import face_alignment
 import torch
 import yaml
-#from modules.keypoint_detector import KPDetector
+# from modules.keypoint_detector import KPDetector
 from fomm.modules.keypoint_detector import KPDetector
-#from modules.generator_optim import OcclusionAwareGenerator
+# from modules.generator_optim import OcclusionAwareGenerator
 from fomm.modules.generator_optim import OcclusionAwareGenerator
 import numpy as np
 
@@ -37,9 +37,9 @@ def to_tensor(a):
 
 
 class GRMPredictor:
-    fa = None
-
-    def __init__(self, config_path, checkpoint_path, relative=True, adapt_movement_scale=True, device=None, enc_downscale=1, listen_port=9988, server_ip='127.0.0.1', server_port=9988, is_server=False, keyframe_period=10000):
+    def __init__(self, config_path, checkpoint_path, relative=True, adapt_movement_scale=True, device=None,
+                 enc_downscale=1, listen_port=9988, server_ip='127.0.0.1', server_port=9988, is_server=False,
+                 keyframe_period=10000):
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.relative = relative
         self.adapt_movement_scale = adapt_movement_scale
@@ -49,7 +49,7 @@ class GRMPredictor:
         self.config_path = config_path
         self.checkpoint_path = checkpoint_path
         self.generator, self.kp_detector = self.load_checkpoints()
-        #self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
+        self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
         self.source = None
         self.kp_source = None
         self.enc_downscale = enc_downscale
@@ -58,15 +58,6 @@ class GRMPredictor:
         self.server_port = server_port
         self.is_server = is_server
         self.keyframe_period = keyframe_period
-
-    def start(self):
-        if self.fa is None:
-            self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
-
-    def is_started(self):
-        if self.fa is None:
-            return False
-        return True
 
     def load_checkpoints(self):
         with open(self.config_path) as f:
@@ -106,7 +97,7 @@ class GRMPredictor:
 
     def predict(self, driving_frame):
         assert self.kp_source is not None, "call set_source_image()"
-        
+
         with torch.no_grad():
             driving = to_tensor(driving_frame).to(self.device)
 
@@ -117,8 +108,8 @@ class GRMPredictor:
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source, kp_driving=kp_driving,
-                                kp_driving_initial=self.kp_driving_initial, use_relative_movement=self.relative,
-                                use_relative_jacobian=self.relative, adapt_movement_scale=self.adapt_movement_scale)
+                                   kp_driving_initial=self.kp_driving_initial, use_relative_movement=self.relative,
+                                   use_relative_jacobian=self.relative, adapt_movement_scale=self.adapt_movement_scale)
 
             out = self.generator(self.source, kp_source=self.kp_source, kp_driving=kp_norm)
 
@@ -172,7 +163,7 @@ class GRMPredictor:
         area = np.sqrt(area)
         kp[:, :2] = kp[:, :2] / area
         return kp
-    
+
     def get_start_frame(self):
         return self.start_frame
 

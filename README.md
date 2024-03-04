@@ -1,9 +1,10 @@
 Progress
-- Implementation of communication module between server/client (completed, but planned to use JayB module later)
+- Forked from https://github.com/alievk/avatarify-python
+- Implementation of communication module between server/client (completed, but planned to use peerApi module later)
 - Apply encoding/decoding module using avatarify (Server and client must be run on different PCs, and cuda environment must be set for each)
 - Transmit and receive key frames and avatarify feature points and display them on the screen
 - Completion of screen composition using pyqt5
-- Application of JayB Prototype module completed (Implementation completed to apply the previously received content as a parameter classification)
+- Application of peerApi Prototype module completed (Implementation completed to apply the previously received content as a parameter classification)
 - Screen output part after video encoding/decoding process is in progress
 - telecommuication audio module processing 
 
@@ -11,11 +12,11 @@ Future progress
 - Audio module processing (synchronization with video, etc. will be processed later)
 - Payload module processing of transmitted and received packets (this part will be completed by the end of the year)
 - Application of SNNM mode (Details of application period and contents will be confirmed after additional review)
-- Applied when JayB SDK module is completed (scheduled to be applied by the end of 2023)
+- Applied when peerApi SDK module is completed (scheduled to be applied by the end of 2023)
 
 Build Configuration
   * Environment variable
-    - PYTHONUNBUFFERED=1;PYTHONPATH=%PYTHONPATH%\\\;\;[Working Directory]\\;[Working Directory]\fomm
+    - PYTHONUNBUFFERED=1;PYTHONPATH=%PYTHONPATH%\\\;\;[Working Directory]\\;[Working Directory]\fomm;[Working Directory]\SPIGA
 
 Execute parameter
   * Server  

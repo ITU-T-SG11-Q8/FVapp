@@ -1,0 +1,7 @@
+{
+    "OVERLAY_SERVER_ADDR" : "http://144.24.179.237:8081",
+    "SIGNALING_SERVER_ADDR" : "ws://144.24.179.237:8082",
+    "LOG_LEVEL" : 2,
+    "FILE_LOG" : false,
+    "STDOUT_LOG" : true
+}

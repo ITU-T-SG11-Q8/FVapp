@@ -242,35 +242,10 @@
      <property name="title">
       <string>Channel List</string>
      </property>
-     <widget class="QCheckBox" name="checkBox_facevideo">
-      <property name="geometry">
-       <rect>
-        <x>20</x>
-        <y>10</y>
-        <width>100</width>
-        <height>40</height>
-       </rect>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="text">
-       <string>Face Video</string>
-      </property>
-     </widget>
      <widget class="QCheckBox" name="checkBox_audio">
       <property name="geometry">
        <rect>
-        <x>170</x>
+        <x>240</x>
         <y>10</y>
         <width>100</width>
         <height>40</height>
@@ -317,6 +292,31 @@
        <string>Text</string>
       </property>
      </widget>
+     <widget class="QCheckBox" name="checkBox_facevideo">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>10</y>
+        <width>100</width>
+        <height>40</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>Face Video</string>
+      </property>
+     </widget>
     </widget>
    </item>
    <item row="3" column="0">
@@ -340,7 +340,6 @@
   <tabstop>lineEdit_admin_key</tabstop>
   <tabstop>lineEdit_title</tabstop>
   <tabstop>lineEdit_description</tabstop>
-  <tabstop>checkBox_facevideo</tabstop>
   <tabstop>checkBox_audio</tabstop>
   <tabstop>checkBox_text</tabstop>
   <tabstop>button_cancel</tabstop>
