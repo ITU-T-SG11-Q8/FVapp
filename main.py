@@ -1,28 +1,27 @@
 # -*- coding: utf-8 -*-
+
 from collections import deque
 from sys import platform as _platform
-import glob
+#import glob
 
+import os
 import pygame
 import pygame.camera
 
-import peerApi.classes
 from afy.videocaptureasync import VideoCaptureAsync
 from afy.arguments import opt
 from afy.utils import info, Tee, crop, resize
-
-import peerApi as Api
 
 import sys
 import cv2
 import numpy as np
 import pyaudio
 from PyQt5 import QtGui, uic
-from PyQt5.QtWidgets import QApplication, QFileDialog, QDialog, QMainWindow, QWidget
+from PyQt5.QtWidgets import QApplication, QFileDialog, QDialog, QMainWindow #, QWidget
 from PyQt5.QtCore import *
 from PyQt5 import QtCore
 # from collections import deque
-from multiprocessing import Process
+#from multiprocessing import Process
 
 from gooroomee.bin_comm import BINComm
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
@@ -35,6 +34,11 @@ from typing import List
 import time
 
 from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
+
+#import peerApi as Api
+#import peerApi.classes
+import hp2papi as api
+from hp2papi.classes import Channel
 
 # 음성 출력 설정
 RATE = 44100
@@ -60,20 +64,35 @@ worker_render_and_decode_frame = None
 worker_speaker = None
 worker_grm_comm = None
 
-global_comm_grm_type = True  # True : gooroomee False : JAYBE
+global_comm_grm_type = False    # True : gooroomee False : JAYBE
 global_spiga_loopback = False
 
 @dataclass
 class SessionData:
-    overlayId: str = None,
-    title: str = None,
-    description: str = None,
-    startDateTime: str = None,
-    endDateTime: str = None,
-    ownerId: str = None,
-    accessKey: str = None,
-    sourceList: List[str] = None,
-    channelList: List[peerApi.classes.Channel] = None
+    adminKey: str = None
+    overlayId: str = None
+    title: str = None
+    description: str = None
+    startDateTime: str = None
+    endDateTime: str = None
+    ownerId: str = None
+    accessKey: str = None
+    sourceList: List[str] = None
+    #channelList: List[peerApi.classes.Channel] = None
+    channelList: List[Channel] = None
+
+    def __init__(self):
+        self.adminKey = ''
+        self.overlayId = ''
+        self.title = ''
+        self.description = ''
+        self.startDateTime = ''
+        self.endDateTime = ''
+        self.ownerId = ''
+        self.accessKey = ''
+        self.sourceList = List[str]
+        # self.channelList: List[peerApi.classes.Channel] = []
+        # self.channelList: List[Channel] = []
 
 
 @dataclass
@@ -137,7 +156,6 @@ def draw_rect(img, rw=0.6, rh=0.8, color=(255, 0, 0), thickness=2):
     d = h - u
     cv2.rectangle(img, (int(ll), int(u)), (int(r), int(d)), color, thickness)
 
-
 class MicWorker(GrmParentThread):
     def __init__(self, p_send_grm_queue):
         super().__init__()
@@ -177,14 +195,14 @@ class MicWorker(GrmParentThread):
                                 bin_data = self.bin_wrapper.to_bin_audio_data(_frames)
                                 self.send_grm_queue.put(bin_data)
                             else:
-                                send_request = Api.SendDataRequest(Api.DataType.Audio,
+                                send_request = api.SendDataRequest(api.DataType.Audio,
                                                                    myWindow.join_session.ownerId, _frames)
                                 # print("\nAudio SendData Request:", sendReq)
 
-                                res = Api.SendData(send_request)
+                                res = api.SendData(send_request)
                                 # print("\nSendData Response:", res)
 
-                                if res.code is Api.ResponseCode.Success:
+                                if res.code is api.ResponseCode.Success:
                                     print("\nAudio SendData success.")
                                 else:
                                     print("\nAudio SendData fail.", res.code)
@@ -196,6 +214,9 @@ class MicWorker(GrmParentThread):
                 time.sleep(0.1)
             QApplication.processEvents()
             time.sleep(0.1)
+
+        print("Stop MicWorker")
+        self.terminate()
 
 
 class SpeakerWorker(GrmParentThread):
@@ -236,6 +257,9 @@ class SpeakerWorker(GrmParentThread):
             QApplication.processEvents()
             time.sleep(0.1)
 
+        print("Stop SpeakerWorker")
+        self.terminate()
+
 
 '''
 render decoded frame
@@ -270,6 +294,10 @@ class RenderAndDecodeFrameWorker(GrmParentThread):
                 time.sleep(0.1)
             time.sleep(0.1)
 
+        print("Stop RenderAndDecodeFrameWorker")
+        self.terminate()
+
+
 
 class PreviewWorker(GrmParentThread):
     def __init__(self, p_name, p_view_video_queue, view_location):
@@ -297,6 +325,10 @@ class PreviewWorker(GrmParentThread):
                             self.view_location.setPixmap(pixmap)
                 time.sleep(0.1)
             time.sleep(0.1)
+
+
+        print("Stop PreviewWorker")
+        self.terminate()
 
 
 class DecodePacketWorker(GrmParentThread):
@@ -426,6 +458,9 @@ class DecodePacketWorker(GrmParentThread):
             time.sleep(0.1)
             # print('sleep')
 
+        print("Stop DecodePacketWorker")
+        self.terminate()
+
 
 class GrmCommWorker(GrmParentThread):
     def __init__(self, p_send_packet_queue, p_recv_video_queue, p_recv_audio_queue,
@@ -520,19 +555,22 @@ class GrmCommWorker(GrmParentThread):
                                 if self.client_connected is True:
                                     self.comm_bin.send_bin(bin_data)
                         else:
-                            send_request = Api.SendDataRequest(Api.DataType.FeatureBasedVideo,
+                            send_request = api.SendDataRequest(api.DataType.FeatureBasedVideo,
                                                                myWindow.join_session.overlayId, bin_data)
                             print("\nSendData Request:", send_request)
 
-                            res = Api.SendData(send_request)
+                            res = api.SendData(send_request)
                             # print("\nSendData Response:", res)
 
-                            if res.code is Api.ResponseCode.Success:
+                            if res.code is api.ResponseCode.Success:
                                 print("\nVideo SendData success.")
                             else:
                                 print("\nVideo SendData fail.", res.code)
                 time.sleep(0.1)
             time.sleep(0.1)
+
+        print("Stop GrmCommWorker")
+        self.terminate()
 
 
 '''
@@ -708,6 +746,9 @@ class EncodePacketWorker(GrmParentThread):
                 time.sleep(0.1)
             time.sleep(0.1)
 
+        print("Stop EncodePacketWorker")
+        self.terminate()
+
 
 class CaptureFrameWorker(GrmParentThread):
     def __init__(self, p_camera_index, p_capture_queue, p_preview_queue):
@@ -783,6 +824,9 @@ class CaptureFrameWorker(GrmParentThread):
                 cap.stop()
             time.sleep(0.1)
 
+        print("Stop CaptureFrameWorker")
+        self.terminate()
+
 
 class MainWindowClass(QMainWindow, form_class):
     alived = True
@@ -806,12 +850,12 @@ class MainWindowClass(QMainWindow, form_class):
         self.create_button.clicked.connect(self.create_room)
         self.join_button.clicked.connect(self.join_room)
         self.room_information_button.clicked.connect(self.information_room)
-        self.button_exit.clicked.connect(self.exit_button)
         self.button_chat_send.clicked.connect(self.send_chat)
         self.lineEdit_input_chat.returnPressed.connect(self.send_chat)
         self.comboBox_mic.currentIndexChanged.connect(self.change_mic_device)
         self.comboBox_audio_device.currentIndexChanged.connect(self.change_audio_device)
         self.comboBox_video_device.currentIndexChanged.connect(self.change_camera_device)
+        self.button_exit.clicked.connect(self.exit_button)
 
         # self.button_send_keyframe.clicked.connect(self.worker_encode_packet.send_key_frame)
         self.button_chat_send.setDisabled(True)
@@ -824,372 +868,6 @@ class MainWindowClass(QMainWindow, form_class):
     def timeout(self):
         global worker_encode_packet
         worker_encode_packet.send_key_frame()
-
-    def create_room(self):
-        if self.create_button.text() == "Channel Create":
-            room_create_ui.clear_value()
-            room_create_ui.show()
-
-        elif self.create_button.text() == "Channel Delete":
-            self.remove_room()
-
-    def remove_room(self):
-        print(f"overlayId:{self.join_session.overlayId}, ownerId:{self.join_session.ownerId}, "
-              f"accesskey:{self.join_session.accessKey}")
-        res = Api.Removal(Api.RemovalRequest(self.join_session.overlayId, self.join_session.ownerId,
-                                             self.join_session.accessKey))
-        if res.code is Api.ResponseCode.Success:
-            print("\nRemoval success.")
-            self.join_session = SessionData()
-        else:
-            print(f"\nRemoval fail.[{res.code}]")
-
-    def send_chat(self):
-        print('send chat')
-        input_message = self.lineEdit_input_chat.text()
-        self.output_chat(input_message)
-        self.lineEdit_input_chat.clear()
-
-        send_message = bytes(input_message, 'utf-8')
-        send_request = Api.SendDataRequest(Api.DataType.Text, self.join_session.overlayId, send_message)
-        print("\nText SendData Request:", send_request)
-
-        res = Api.SendData(send_request)
-        print("\nText SendData Response:", res)
-
-        if res.code is Api.ResponseCode.Success:
-            print("\nText SendData success.")
-        else:
-            print("\nText SendData fail.", res.code)
-
-    def get_my_display_name(self):
-        for i in self.join_peer:
-            if i.peer_id == self.peer_id:
-                return i.display_name
-        return "Invalid user"
-
-    def output_chat(self, message):
-        print('output chat')
-        chat_message = '[' + self.get_my_display_name() + '] : ' + message
-        self.listWidget_chat_message.addItem(chat_message)
-
-    def join_room(self):
-        if myWindow.join_button.text() == "Channel Join":
-            if myWindow.comm_mode_type is True:
-                join_ui.radioButton_kdm.setChecked(True)
-            else:
-                join_ui.radioButton_snnm.setChecked(True)
-            join_ui.show()
-        elif myWindow.join_button.text() == "Channel Leave":
-            self.leave_room()
-
-    def change_camera_device(self):
-        global worker_capture_frame
-        print('camera index change start')
-        worker_capture_frame.pause_process()
-        time.sleep(1)
-        worker_capture_frame.change_device(self.comboBox_video_device.currentData())
-        worker_capture_frame.resume_process()
-        print('camera index change end')
-
-    def change_mic_device(self):
-        global worker_mic
-        worker_mic.pause_process()
-        time.sleep(2)
-        worker_mic.change_device(self.comboBox_mic.currentData())
-        # self.worker_mic.change_device(1)
-        worker_mic.resume_process()
-
-    def change_audio_device(self):
-        global worker_speaker
-        print('main change speaker device start')
-        worker_speaker.pause_process()
-        time.sleep(2)
-        worker_speaker.change_device(self.comboBox_audio_device.currentData())
-        worker_speaker.resume_process()
-        print('main change speaker device end')
-
-    def send_join_room_func(self):
-        if self.join_button.text() == "Channel Join":
-            overlay_id = join_ui.comboBox_overlay_id.currentText()
-            peer_id = join_ui.lineEdit_peer_id.text()
-            display_name = join_ui.lineEdit_display_name.text()
-            private_key = join_ui.lineEdit_private_key.text()
-            public_key = join_ui.lineEdit_public_key.text()
-
-            if join_ui.radioButton_kdm.isChecked() is True:
-                myWindow.comm_mode_type = True
-            else:
-                myWindow.comm_mode_type = False
-
-            self.join_button.setText("Channel Leave")
-            self.room_information_button.setDisabled(False)
-            self.create_button.setDisabled(True)
-            join_ui.close()
-
-            self.button_chat_send.setDisabled(False)
-            self.lineEdit_input_chat.setDisabled(False)
-
-            join_request = Api.JoinRequest(overlay_id, "", peer_id, display_name, public_key, private_key)
-            print("\nJoinRequest:", join_request)
-            join_response = Api.Join(join_request)
-            print("\nJoinResponse:", join_response)
-
-            if join_response.code is Api.ResponseCode.Success:
-                set_join(True)
-                self.peer_id = peer_id
-            return join_response
-        elif myWindow.join_button.text() == "Channel Leave":
-            self.leave_room()
-
-    def search_user(self):
-        search_peer_req = Api.SearchPeerRequest(self.join_session.overlayId)
-        print("\nSearchPeerRequest:", search_peer_req)
-
-        search_peer_res = Api.SearchPeer(search_peer_req)
-        print("\nSearchPeerResponse:", search_peer_res)
-        # return searchPeerRes.peerList
-        if search_peer_res.code is Api.ResponseCode.Success:
-            for i in search_peer_res.peerList:
-                update_peer: PeerData = PeerData(peer_id=i.peerId, display_name=i.displayName)
-                self.update_user(update_peer, False)
-
-    def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):
-        if p_leave_flag is True:
-            self.join_peer.remove(p_peer_data)
-        else:
-            update_flag = False
-            if self.join_peer is not None:
-                for i in self.join_peer:
-                    if p_peer_data.peer_id == i.peer_id:
-                        i.display_name = p_peer_data.display_name
-                        update_flag = True
-
-            if update_flag is False:
-                self.join_peer.append(p_peer_data)
-
-    def session_notification_listener(self, change: Api.Notification):
-        if change.notificationType is Api.NotificationType.SessionChangeNotification:
-            session_change: Api.SessionChangeNotification = change
-            print("\nSessionChangeNotification received.", session_change)
-            print(f"\nChange session is {session_change.overlayId}")
-            self.join_session = SessionData(overlayId=session_change.overlayId, title=session_change.title,
-                                            description=session_change.title, ownerId=session_change.ownerId,
-                                            accessKey=session_change.accessKey, sourceList=session_change.sourceList,
-                                            channelList=session_change.channelList)
-        elif change.notificationType is Api.NotificationType.SessionTerminationNotification:
-            session_termination: Api.SessionTerminationNotification = change
-            print("\nSessionTerminationNotification received.", session_termination)
-            print(f"\nTerminate session is {session_termination.overlayId}")
-            if self.join_session.overlayId == session_termination.overlayId:
-                self.leave_room()
-                self.remove_room()
-        elif change.notificationType is Api.NotificationType.PeerChangeNotification:
-            peer_change: Api.PeerChangeNotification = change
-            print("\nPeerChangeNotification received.", peer_change)
-            print(f"\nPeer change session is {peer_change.overlayId}")
-            if self.join_session.overlayId == peer_change.overlayId:
-                update_peer_data: PeerData = PeerData(peer_id=peer_change.peerId, display_name=peer_change.displayName)
-                self.update_user(update_peer_data, peer_change.leave)
-            self.update_user_list()
-
-        elif change.notificationType is Api.NotificationType.DataNotification:
-            data: Api.DataNotification = change
-            if data.dataType is Api.DataType.FeatureBasedVideo:
-                print("\nVideo DataNotification received.")
-                if global_comm_grm_type is True:
-                    self.recv_video_queue.put(data.data)
-            elif data.dataType is Api.DataType.Audio:
-                print("\nAudio DataNotification received.")
-                if global_comm_grm_type is True:
-                    self.recv_audio_queue.put(data.data)
-            elif data.dataType is Api.DataType.Text:
-                print(f"\nText DataNotification received. peer_id:{data.peerId}")
-                print(f"Text DataNotification received.{data.data}")
-                chat_message = str(data.data, 'utf-8')
-                self.output_chat(chat_message)
-
-    def leave_room(self):
-        res = Api.Leave(Api.LeaveRequest(overlayId=self.join_session.overlayId, peerId=self.peer_id,
-                                         accessKey=self.join_session.accessKey))
-        if res.code is Api.ResponseCode.Success:
-            print("\nLeave success.")
-            set_join(False)
-
-            self.join_button.setText("Channel Join")
-            self.create_button.setDisabled(False)
-        else:
-            print("\nLeave fail.", res.code)
-
-    def create_room_ok_func(self):
-        if myWindow.create_button.text() == "Channel Create":
-            title = room_create_ui.lineEdit_title.text()
-            # description = room_create_ui.lineEdit_description.text()
-            owner_id = room_create_ui.lineEdit_ower_id.text()
-            admin_key = room_create_ui.lineEdit_admin_key.text()
-            channel_audio = room_create_ui.checkBox_audio.isChecked()
-            channel_text = room_create_ui.checkBox_text.isChecked()
-            channel_face_video = room_create_ui.checkBox_facevideo.isChecked()
-
-            creation_req = Api.CreationRequest(title=title, ownerId=owner_id, adminKey=admin_key)
-            service_control_channel = Api.ChannelServiceControl()
-
-            face_channel = None
-            audio_channel = None
-            text_channel = None
-            if channel_face_video is True:
-                face_channel = Api.ChannelFeatureBasedVideo()
-                face_channel.mode = Api.FeatureBasedVideoMode.KeypointsDescriptionMode
-                face_channel.resolution = "1024x1024"
-                face_channel.framerate = "30fps"
-                face_channel.keypointsType = "68points"
-
-            if channel_audio is True:
-                audio_channel = Api.ChannelAudio()
-                audio_channel.codec = Api.AudioCodec.AAC
-                audio_channel.sampleRate = Api.AudioSampleRate.Is44100
-                audio_channel.bitrate = Api.AudioBitrate.Is128kbps
-                audio_channel.mono = Api.AudioMono.Stereo
-
-            if channel_text is True:
-                text_channel = Api.ChannelText()
-                text_channel.format = Api.TextFormat.Plain
-
-            creation_req.channelList = [service_control_channel, face_channel, audio_channel, text_channel]
-
-            print("\nCreationRequest:", creation_req)
-
-            creation_res = Api.Creation(creation_req)
-
-            print("\nCreationResponse:", creation_res)
-
-            if creation_res.code is Api.ResponseCode.Success:
-                print("\nCreation success.", creation_res.overlayId)
-
-                self.join_session.overlayId = creation_res.overlayId
-                self.join_session.ownerId = owner_id
-                myWindow.create_button.setText("Channel Delete")
-                room_create_ui.close()
-                myWindow.room_information_button.setDisabled(False)
-
-                Api.SetNotificatonListener(self.join_session.overlayId, self.join_session.ownerId,
-                                           func=self.session_notification_listener)
-            else:
-                print("\nCreation fail.", creation_res.code)
-                self.join_session.overlayId = ""
-        elif myWindow.create_button.text() == "Channel Delete":
-            self.remove_room()
-            all_stop_worker()
-
-    def information_room(self):
-        room_information_ui.lineEdit_overlay_id.setText(self.join_session.overlayId)
-        room_information_ui.lineEdit_overlay_id.setDisabled(True)
-        room_information_ui.lineEdit_ower_id.setText(self.join_session.ownerId)
-        room_information_ui.lineEdit_ower_id.setDisabled(True)
-        room_information_ui.lineEdit_admin_key.setText(self.join_session.accessKey)
-        room_information_ui.lineEdit_admin_key.setDisabled(True)
-        room_information_ui.lineEdit_title.setText(self.join_session.title)
-        room_information_ui.lineEdit_description.setText(self.join_session.description)
-
-        room_information_ui.groupBox.setCheckable(False)
-        room_information_ui.checkBox_facevideo.setChecked(False)
-        room_information_ui.checkBox_audio.setChecked(False)
-        room_information_ui.checkBox_text.setChecked(False)
-        if self.join_session.channelList is not None:
-            for i in self.join_session.channelList:
-                if i.channelType is Api.ChannelType.FeatureBasedVideo:
-                    room_information_ui.checkBox_facevideo.setChecked(True)
-                    room_information_ui.checkBox_facevideo.setDisabled(True)
-                elif i.channelType is Api.ChannelType.Audio:
-                    room_information_ui.checkBox_audio.setChecked(True)
-                    room_information_ui.checkBox_audio.setDisabled(True)
-                elif i.channelType is Api.ChannelType.Audio:
-                    room_information_ui.checkBox_text.setChecked(True)
-                    room_information_ui.checkBox_text.setDisabled(True)
-        room_information_ui.show()
-
-    def modify_information_room(self):
-        print("Modify Information Room")
-        title = room_information_ui.lineEdit_title.text()
-        description = room_information_ui.lineEdit_description.text()
-
-        modification_req = Api.ModificationRequest(overlayId=self.join_session.overlayId,
-                                                   ownerId=self.join_session.ownerId,
-                                                   adminKey=self.join_session.accessKey)
-
-        # 변경할 값만 입력
-        modification_req.title = title
-        modification_req.description = description
-        modification_req.newOwnerId = self.join_session.ownerId
-        modification_req.newAdminKey = self.join_session.accessKey
-        # modification_req.startDateTime = "20230101090000"
-        # modification_req.endDateTime = "20230101100000"
-        # modification_req.accessKey = "new_access_key"
-        # modification_req.peerList = ["user3", "user4"]
-        # modification_req.blockList = ["user5"]
-
-        modification_req.sourceList = ["*"]
-
-        video_channel = Api.ChannelFeatureBasedVideo()
-        video_channel.sourceList = ["*"]
-        modification_req.channelList = [video_channel]
-
-        print("\nModificationRequest:", modification_req)
-
-        modification_res = Api.Modification(modification_req)
-
-        print("\nModificationResponse:", modification_res)
-
-        if modification_res.code is Api.ResponseCode.Success:
-            print("\nModification success.")
-            return True
-        else:
-            print("\nModification fail.", modification_res.code)
-            return False
-
-    def update_user_list(self):
-        self.listWidget.clear()
-        for i in self.join_peer:
-            self.listWidget.addItem(i.display_name)
-
-    def exit_button(self):
-        self.alived = False
-
-        global worker_decode_packet
-        global worker_render_and_decode_frame
-        global worker_encode_packet
-        global worker_capture_frame
-        global worker_preview
-        global worker_mic
-        global worker_speaker
-        global worker_grm_comm
-
-        if worker_decode_packet is not None:
-            worker_decode_packet.stop_process()
-            worker_decode_packet.terminate_process()
-        if worker_render_and_decode_frame is not None:
-            worker_render_and_decode_frame.stop_process()
-            worker_render_and_decode_frame.terminate_process()
-        if worker_encode_packet is not None:
-            worker_encode_packet.stop_process()
-            worker_encode_packet.terminate_process()
-        if worker_capture_frame is not None:
-            worker_capture_frame.stop_process()
-            worker_capture_frame.terminate_process()
-        if worker_preview is not None:
-            worker_preview.stop_process()
-            worker_preview.terminate_process()
-        if worker_mic is not None:
-            worker_mic.stop_process()
-            worker_mic.terminate_process()
-        if worker_speaker is not None:
-            worker_speaker.stop_process()
-            worker_speaker.terminate_process()
-        if worker_grm_comm is not None:
-            worker_grm_comm.stop_process()
-            worker_grm_comm.terminate_process()
-
-        self.close()
 
     def camera_device_init(self, max_count):
         pygame.camera.init()
@@ -1221,6 +899,451 @@ class MainWindowClass(QMainWindow, form_class):
                         print(f"Output deviceName:{device_name}, index:{index}")
                         self.comboBox_mic.addItem(device_name, userData=index)
 
+    def create_room(self):
+        if self.create_button.text() == "Channel Create":
+            room_create_ui.clear_value()
+            room_create_ui.show()
+
+        elif self.create_button.text() == "Channel Delete":
+            self.remove_room()
+
+    def internal_create_channel_facevideo(self):
+        face_video_channel = api.ChannelFeatureBasedVideo()
+        # channelId는 channel의 key로 사용. 임의의 값을 사용할 수 있음
+        # 추후 channel의 속성 변경을 위해 알고 있어야 함
+        face_video_channel.channelId = "kdmChannel"
+        face_video_channel.target = api.FeatureBasedVideoTarget.Face
+        face_video_channel.mode = api.FeatureBasedVideoMode.KeypointsDescriptionMode
+        face_video_channel.resolution = "1024x1024"
+        face_video_channel.framerate = "30fps"
+        face_video_channel.keypointsType = "68points"
+        # channel의 sourcelist를 설정하면 해당 사용자만 해당 채널의 데이터 송신 가능
+        # 설정하지 않으면 CreationRequest의 sourceList를 따름
+        # 설정하면 해당 channel에서는 CreationRequest의 sourceList는 무시됨
+        # 값이 없는 리스트 []를 설정하면 해당 채널의 데이터 송신 불가능
+        # Owner 권한이 있는 사용자가 Modification을 통해 sourceList를 변경할 수 있음
+        face_video_channel.sourceList = ["test1", "test2"]
+        return face_video_channel
+
+    def internal_create_channel_audio(self):
+        audio_channel = api.ChannelAudio()
+        audio_channel.channelId = "audioChannel"
+        audio_channel.codec = api.AudioCodec.AAC
+        audio_channel.sampleRate = api.AudioSampleRate.Is44100
+        audio_channel.bitrate = api.AudioBitrate.Is128kbps
+        audio_channel.audioChannelType = api.AudioChannelType.Stereo
+        return audio_channel
+
+    def internal_create_channel_text(self):
+        text_channel = api.ChannelText()
+        text_channel.channelId = "textChannel"
+        text_channel.format = api.TextFormat.Plain
+        text_channel.encoding = api.TextEncoding.UTF8
+        return text_channel
+
+    def create_room_ok_func(self):
+        if myWindow.create_button.text() == "Channel Create":
+            title = room_create_ui.lineEdit_title.text()
+            description = room_create_ui.lineEdit_description.text()
+            owner_id = room_create_ui.lineEdit_ower_id.text()
+            admin_key = room_create_ui.lineEdit_admin_key.text()
+            checked_face_video = room_create_ui.checkBox_facevideo.isChecked()
+            checked_audio = room_create_ui.checkBox_audio.isChecked()
+            checked_text = room_create_ui.checkBox_text.isChecked()
+
+            creation_req = api.CreationRequest(title=title, description=description,
+                                              ownerId=owner_id, adminKey=admin_key)
+
+            service_control_channel = api.ChannelServiceControl()
+            service_control_channel.channelId = "controlChannel"
+            face_video_channel = None
+            audio_channel = None
+            text_channel = None
+
+            if checked_face_video is True:
+                face_video_channel = self.internal_create_channel_facevideo()
+            if checked_audio is True:
+                audio_channel = self.internal_create_channel_audio()
+            if checked_text is True:
+                text_channel = self.internal_create_channel_text()
+
+            creation_req.channelList = [service_control_channel, face_video_channel, audio_channel, text_channel]
+
+            print("\nCreationRequest:", creation_req)
+
+            creation_res = api.Creation(creation_req)
+            room_create_ui.close()
+
+            print("\nCreationResponse:", creation_res)
+
+            if creation_res.code is api.ResponseCode.Success:
+                print("\nCreation success.", creation_res.overlayId)
+
+                self.join_session.overlayId = creation_res.overlayId
+                self.join_session.ownerId = owner_id
+                self.join_session.adminKey = admin_key
+                myWindow.create_button.setText("Channel Delete")
+                myWindow.room_information_button.setDisabled(False)
+
+                api.SetNotificatonListener(self.join_session.overlayId, self.join_session.ownerId,
+                                           func=self.session_notification_listener)
+            else:
+                print("\nCreation fail.", creation_res.code)
+                self.join_session.overlayId = ""
+
+        elif myWindow.create_button.text() == "Channel Delete":
+            self.remove_room()
+            all_stop_worker()
+            room_create_ui.close()
+
+    def join_room(self):
+        if myWindow.join_button.text() == "Channel Join":
+            if self.join_session.overlayId is None or len(self.join_session.overlayId) == 0:
+                join_ui.button_query.setDisabled(False)
+                join_ui.comboBox_overlay_id.setDisabled(False)
+            else:
+                join_ui.button_query.setDisabled(True)
+                join_ui.comboBox_overlay_id.setDisabled(True)
+                join_ui.comboBox_overlay_id.addItem(self.join_session.overlayId)
+
+            if len(self.join_session.ownerId) > 0:
+                join_ui.lineEdit_peer_id.setText(self.join_session.ownerId)
+                join_ui.lineEdit_peer_id.setReadOnly(True)
+            else:
+                join_ui.lineEdit_peer_id.setText('')
+                join_ui.lineEdit_peer_id.setReadOnly(False)
+
+            if myWindow.comm_mode_type is True:
+                join_ui.radioButton_kdm.setChecked(True)
+            else:
+                join_ui.radioButton_snnm.setChecked(True)
+            join_ui.show()
+        elif myWindow.join_button.text() == "Channel Leave":
+            self.leave_room()
+
+    def send_join_room_func(self):
+        if self.join_button.text() == "Channel Join":
+            overlay_id = join_ui.comboBox_overlay_id.currentText()
+            peer_id = join_ui.lineEdit_peer_id.text()
+            display_name = join_ui.lineEdit_display_name.text()
+            private_key = join_ui.lineEdit_private_key.text()
+
+            if len(private_key) == 0:
+                return
+
+            if join_ui.radioButton_kdm.isChecked() is True:
+                myWindow.comm_mode_type = True
+            else:
+                myWindow.comm_mode_type = False
+
+            self.room_information_button.setDisabled(False)
+            self.create_button.setDisabled(True)
+
+            self.button_chat_send.setDisabled(False)
+            self.lineEdit_input_chat.setDisabled(False)
+
+            private_key_abs = os.path.abspath(private_key)
+            join_request = api.JoinRequest(overlay_id, "", peer_id, display_name, private_key_abs)
+            print("\nJoinRequest:", join_request)
+            join_response = api.Join(join_request)
+            print("\nJoinResponse:", join_response)
+            join_ui.close()
+
+            if join_response.code is api.ResponseCode.Success:
+                self.join_button.setText("Channel Leave")
+                self.peer_id = peer_id
+                self.join_session.channelList = join_response.channelList
+                # self.join_session.title = join_response.title
+                # self.join_session.description = join_response.description
+                set_join(True)
+
+            return join_response
+        elif myWindow.join_button.text() == "Channel Leave":
+            self.leave_room()
+
+    def leave_room(self):
+        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId, peerId=self.peer_id,
+                                         accessKey=self.join_session.accessKey))
+        if res.code is api.ResponseCode.Success:
+            print("\nLeave success.")
+            set_join(False)
+
+            self.join_button.setText("Channel Join")
+            self.create_button.setDisabled(False)
+        else:
+            print("\nLeave fail.", res.code)
+
+    def information_room(self):
+        if self.join_session.overlayId is not None:
+            room_information_ui.lineEdit_overlay_id.setText(self.join_session.overlayId)
+        room_information_ui.lineEdit_overlay_id.setDisabled(True)
+        if self.join_session.ownerId is not None:
+            room_information_ui.lineEdit_ower_id.setText(self.join_session.ownerId)
+        room_information_ui.lineEdit_ower_id.setDisabled(True)
+        if self.join_session.accessKey is not None:
+            room_information_ui.lineEdit_admin_key.setText(self.join_session.accessKey)
+        room_information_ui.lineEdit_admin_key.setDisabled(True)
+        if self.join_session.title is not None:
+            room_information_ui.lineEdit_title.setText(self.join_session.title)
+        if self.join_session.description is not None:
+            room_information_ui.lineEdit_description.setText(self.join_session.description)
+        if self.join_session.adminKey is not None and len(self.join_session.adminKey) > 0:
+            room_information_ui.button_ok.setDisabled(False)
+        else:
+            room_information_ui.button_ok.setDisabled(True)
+
+        room_information_ui.groupBox.setCheckable(False)
+        room_information_ui.checkBox_facevideo.setChecked(False)
+        room_information_ui.checkBox_audio.setChecked(False)
+        room_information_ui.checkBox_text.setChecked(False)
+        if self.join_session.channelList is not None:
+            for i in self.join_session.channelList:
+                if i.channelType is api.ChannelType.FeatureBasedVideo:
+                    room_information_ui.checkBox_facevideo.setChecked(True)
+                    room_information_ui.checkBox_facevideo.setDisabled(True)
+                elif i.channelType is api.ChannelType.Audio:
+                    room_information_ui.checkBox_audio.setChecked(True)
+                    room_information_ui.checkBox_audio.setDisabled(True)
+                elif i.channelType is api.ChannelType.Text:
+                    room_information_ui.checkBox_text.setChecked(True)
+                    room_information_ui.checkBox_text.setDisabled(True)
+        room_information_ui.show()
+
+    def modify_information_room(self):
+        print("Modify Information Room")
+        title = room_information_ui.lineEdit_title.text()
+        description = room_information_ui.lineEdit_description.text()
+
+        modification_req = api.ModificationRequest(overlayId=self.join_session.overlayId,
+                                                   ownerId=self.join_session.ownerId,
+                                                   adminKey=self.join_session.accessKey)
+
+        # 변경할 값만 입력
+        modification_req.adminKey = self.join_session.adminKey
+        modification_req.title = title
+        modification_req.description = description
+
+        face_video_channel = None
+        audio_channel = None
+        text_channel = None
+        if room_information_ui.checkBox_facevideo.isChecked():
+            face_video_channel = self.internal_create_channel_facevideo()
+            face_video_channel.sourceList = ["*"]
+        if room_information_ui.checkBox_audio.isChecked():
+            audio_channel = self.internal_create_channel_audio()
+            audio_channel.sourceList = ["*"]
+        if room_information_ui.checkBox_text.isChecked():
+            text_channel = self.internal_create_channel_text()
+            text_channel.sourceList = ["*"]
+        if face_video_channel is not None or audio_channel is not None or text_channel is not None:
+            modification_req.channelList = [face_video_channel, audio_channel, text_channel]
+
+        # modification_req.newOwnerId = self.join_session.ownerId
+        # modification_req.newAdminKey = self.join_session.accessKey
+        # modification_req.startDateTime = "20230101090000"
+        # modification_req.endDateTime = "20230101100000"
+        # modification_req.accessKey = "new_access_key"
+        # modification_req.peerList = ["user3", "user4"]
+        # modification_req.blockList = ["user5"]
+
+        # modification_req.sourceList = ["*"]
+
+        # video_channel = api.ChannelFeatureBasedVideo()
+        # video_channel.sourceList = ["*"]
+        # modification_req.channelList = [video_channel]
+
+        print("\nModificationRequest:", modification_req)
+
+        modification_res = api.Modification(modification_req)
+
+        print("\nModificationResponse:", modification_res)
+
+        if modification_res.code is api.ResponseCode.Success:
+            print("\nModification success.")
+        else:
+            print("\nModification fail.", modification_res.code)
+
+        room_information_ui.close()
+
+    def send_chat(self):
+        print('send chat')
+        input_message = self.lineEdit_input_chat.text()
+        self.output_chat(input_message)
+        self.lineEdit_input_chat.clear()
+
+        send_message = bytes(input_message, 'utf-8')
+        send_request = api.SendDataRequest(api.DataType.Text, self.join_session.overlayId, send_message)
+        print("\nText SendData Request:", send_request)
+
+        res = api.SendData(send_request)
+        print("\nText SendData Response:", res)
+
+        if res.code is api.ResponseCode.Success:
+            print("\nText SendData success.")
+        else:
+            print("\nText SendData fail.", res.code)
+
+    def change_mic_device(self):
+        global worker_mic
+        worker_mic.pause_process()
+        time.sleep(2)
+        worker_mic.change_device(self.comboBox_mic.currentData())
+        # self.worker_mic.change_device(1)
+        worker_mic.resume_process()
+
+    def change_audio_device(self):
+        global worker_speaker
+        print('main change speaker device start')
+        worker_speaker.pause_process()
+        time.sleep(2)
+        worker_speaker.change_device(self.comboBox_audio_device.currentData())
+        worker_speaker.resume_process()
+        print('main change speaker device end')
+
+    def change_camera_device(self):
+        global worker_capture_frame
+        print('camera index change start')
+        worker_capture_frame.pause_process()
+        time.sleep(1)
+        worker_capture_frame.change_device(self.comboBox_video_device.currentData())
+        worker_capture_frame.resume_process()
+        print('camera index change end')
+
+    def exit_button(self):
+        self.alived = False
+
+        global worker_decode_packet
+        global worker_render_and_decode_frame
+        global worker_encode_packet
+        global worker_capture_frame
+        global worker_preview
+        global worker_mic
+        global worker_speaker
+        global worker_grm_comm
+
+        if worker_decode_packet is not None:
+            worker_decode_packet.stop_process()
+            worker_decode_packet.terminate()
+        if worker_render_and_decode_frame is not None:
+            worker_render_and_decode_frame.stop_process()
+            worker_render_and_decode_frame.terminate()
+        if worker_encode_packet is not None:
+            worker_encode_packet.stop_process()
+            worker_encode_packet.terminate()
+        if worker_capture_frame is not None:
+            worker_capture_frame.stop_process()
+            worker_capture_frame.terminate()
+        if worker_preview is not None:
+            worker_preview.stop_process()
+            worker_preview.terminate()
+        if worker_mic is not None:
+            worker_mic.stop_process()
+            worker_mic.terminate()
+        if worker_speaker is not None:
+            worker_speaker.stop_process()
+            worker_speaker.terminate()
+        if worker_grm_comm is not None:
+            worker_grm_comm.stop_process()
+            worker_grm_comm.terminate()
+
+        self.close()
+
+    def remove_room(self):
+        print(f"overlayId:{self.join_session.overlayId}, ownerId:{self.join_session.ownerId}, "
+              f"adminKey:{self.join_session.adminKey}")
+        res = api.Removal(api.RemovalRequest(self.join_session.overlayId, self.join_session.ownerId,
+                                             self.join_session.adminKey))
+        if res.code is api.ResponseCode.Success:
+            myWindow.create_button.setText("Channel Create")
+            print("\nRemoval success.")
+            self.join_session = SessionData()
+        else:
+            print(f"\nRemoval fail.[{res.code}]")
+
+    def get_my_display_name(self):
+        for i in self.join_peer:
+            if i.peer_id == self.peer_id:
+                return i.display_name
+        return "Invalid user"
+
+    def output_chat(self, message):
+        print('output chat')
+        chat_message = '[' + self.get_my_display_name() + '] : ' + message
+        self.listWidget_chat_message.addItem(chat_message)
+
+    def search_user(self):
+        search_peer_req = api.SearchPeerRequest(self.join_session.overlayId)
+        print("\nSearchPeerRequest:", search_peer_req)
+
+        search_peer_res = api.SearchPeer(search_peer_req)
+        print("\nSearchPeerResponse:", search_peer_res)
+        # return searchPeerRes.peerList
+        if search_peer_res.code is api.ResponseCode.Success:
+            for i in search_peer_res.peerList:
+                update_peer: PeerData = PeerData(peer_id=i.peerId, display_name=i.displayName)
+                self.update_user(update_peer, False)
+
+    def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):
+        if p_leave_flag is True:
+            self.join_peer.remove(p_peer_data)
+        else:
+            update_flag = False
+            if self.join_peer is not None:
+                for i in self.join_peer:
+                    if p_peer_data.peer_id == i.peer_id:
+                        i.display_name = p_peer_data.display_name
+                        update_flag = True
+
+            if update_flag is False:
+                self.join_peer.append(p_peer_data)
+
+    def session_notification_listener(self, change: api.Notification):
+        print(f"\nsession_notification_listener notification.{change}")
+
+        if change.notificationType is api.NotificationType.SessionChangeNotification:
+            session_change: api.SessionChangeNotification = change
+            print("\nSessionChangeNotification received.", session_change)
+            print(f"\nChange session is {session_change.overlayId}")
+            self.join_session = SessionData(overlayId=session_change.overlayId, title=session_change.title,
+                                            description=session_change.title, ownerId=session_change.ownerId,
+                                            accessKey=session_change.accessKey, sourceList=session_change.sourceList,
+                                            channelList=session_change.channelList)
+        elif change.notificationType is api.NotificationType.SessionTerminationNotification:
+            session_termination: api.SessionTerminationNotification = change
+            print("\nSessionTerminationNotification received.", session_termination)
+            print(f"\nTerminate session is {session_termination.overlayId}")
+            if self.join_session.overlayId == session_termination.overlayId:
+                self.leave_room()
+                self.remove_room()
+        elif change.notificationType is api.NotificationType.PeerChangeNotification:
+            peer_change: api.PeerChangeNotification = change
+            print("\nPeerChangeNotification received.", peer_change)
+            print(f"\nPeer change session is {peer_change.overlayId}")
+            if self.join_session.overlayId == peer_change.overlayId:
+                update_peer_data: PeerData = PeerData(peer_id=peer_change.peerId, display_name=peer_change.displayName)
+                self.update_user(update_peer_data, peer_change.leave)
+            self.update_user_list()
+
+        elif change.notificationType is api.NotificationType.DataNotification:
+            data: api.DataNotification = change
+            if data.dataType is api.DataType.FeatureBasedVideo:
+                print("\nVideo DataNotification received.")
+                if global_comm_grm_type is True:
+                    self.recv_video_queue.put(data.data)
+            elif data.dataType is api.DataType.Audio:
+                print("\nAudio DataNotification received.")
+                if global_comm_grm_type is True:
+                    self.recv_audio_queue.put(data.data)
+            elif data.dataType is api.DataType.Text:
+                print(f"\nText DataNotification received. peer_id:{data.peerId}")
+                print(f"Text DataNotification received.{data.data}")
+                chat_message = str(data.data, 'utf-8')
+                self.output_chat(chat_message)
+
+    def update_user_list(self):
+        self.listWidget.clear()
+        for i in self.join_peer:
+            self.listWidget.addItem(i.display_name)
 
 class RoomCreateClass(QDialog):
     def __init__(self):
@@ -1228,11 +1351,6 @@ class RoomCreateClass(QDialog):
         self.ui = uic.loadUi("GUI/ROOM_CREATE.ui", self)
         self.button_ok.clicked.connect(myWindow.create_room_ok_func)
         self.button_cancel.clicked.connect(self.close_button)
-        self.button_file_search.clicked.connect(self.load_admin_key)
-
-    def load_admin_key(self):
-        admin_key = QFileDialog.getOpenFileName(self)
-        self.lineEdit_admin_key.setText(admin_key[0])
 
     def close_button(self):
         self.close()
@@ -1242,9 +1360,9 @@ class RoomCreateClass(QDialog):
         self.lineEdit_description.setText("")
         self.lineEdit_ower_id.setText("")
         self.lineEdit_admin_key.setText("")
-        self.checkBox_audio.setChecked(False)
-        self.checkBox_text.setChecked(False)
-        self.checkBox_facevideo.setChecked(False)
+        self.checkBox_facevideo.setChecked(True)
+        self.checkBox_audio.setChecked(True)
+        self.checkBox_text.setChecked(True)
 
 
 class RoomJoinClass(QDialog):
@@ -1255,24 +1373,19 @@ class RoomJoinClass(QDialog):
         self.button_cancel.clicked.connect(self.close_button)
         self.button_query.clicked.connect(self.overlay_id_search_func)
         self.button_search_private.clicked.connect(self.search_private)
-        self.button_search_public.clicked.connect(self.search_public)
 
     def search_private(self):
         private_key = QFileDialog.getOpenFileName(self)
         self.lineEdit_private_key.setText(private_key[0])
 
-    def search_public(self):
-        public_key = QFileDialog.getOpenFileName(self)
-        self.lineEdit_public_key.setText(public_key[0])
-
     def close_button(self):
         self.close()
 
     def overlay_id_search_func(self):
-        query_res = Api.Query()
-        if query_res.code is not Api.ResponseCode.Success:
+        query_res = api.Query()
+        if query_res.code is not api.ResponseCode.Success:
             print("\nQuery fail.")
-            exit()
+            return
         else:
             print("\nQuery success.")
 
@@ -1449,6 +1562,8 @@ if __name__ == '__main__':
     # import os
     # os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
+    api.StartGrpcServer()
+
     app = QApplication(sys.argv)
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
@@ -1501,4 +1616,6 @@ if __name__ == '__main__':
 
     all_start_worker()
 
-    sys.exit(app.exec_())
+    #sys.exit(app.exec_())
+    ret = app.exec_()
+    sys.exit(ret)
