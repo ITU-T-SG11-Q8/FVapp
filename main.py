@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#from collections import deque
+
 from collections import deque
 from sys import platform as _platform
 #import glob
@@ -125,7 +125,7 @@ class GrmParentThread(QThread):
     def stop_process(self):
         self.alive = False
         self.running = False
-        self.terminate()
+        self.start()
 
     def pause_process(self):
         self.running = False
@@ -318,6 +318,7 @@ class RenderAndDecodeFrameWorker(GrmParentThread):
         self.terminate()
 
 
+
 class PreviewWorker(GrmParentThread):
     def __init__(self, p_name, p_view_video_queue, view_location):
         super().__init__()
@@ -344,6 +345,7 @@ class PreviewWorker(GrmParentThread):
                             self.view_location.setPixmap(pixmap)
                 time.sleep(0.1)
             time.sleep(0.1)
+
 
         print("Stop PreviewWorker")
         self.terminate()
