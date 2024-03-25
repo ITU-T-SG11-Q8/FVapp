@@ -7,6 +7,7 @@ from sys import platform as _platform
 import os
 import pygame
 import pygame.camera
+import random
 
 from afy.videocaptureasync import VideoCaptureAsync
 from afy.arguments import opt
@@ -56,15 +57,23 @@ LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
 IMAGE_SIZE = 256
 
 worker_capture_frame = None
-worker_encode_packet = None
+worker_video_encode_packet = None
 worker_preview = None
-worker_mic = None
-worker_decode_packet = None
+worker_mic_encode_packet = None
+worker_video_decode_packet = None
 worker_render_and_decode_frame = None
-worker_speaker = None
+worker_speaker_decode_packet = None
 worker_grm_comm = None
 
-global_comm_grm_type = False    # True : gooroomee False : JAYBE
+worker_seqnum = 0
+worker_ssrc = 0
+
+'''
+global_comm_grm_type = True # gooroomee
+global_spiga_loopback = True
+'''
+
+global_comm_grm_type = False # JAYBE
 global_spiga_loopback = False
 
 @dataclass
@@ -156,7 +165,7 @@ def draw_rect(img, rw=0.6, rh=0.8, color=(255, 0, 0), thickness=2):
     d = h - u
     cv2.rectangle(img, (int(ll), int(u)), (int(r), int(d)), color, thickness)
 
-class MicWorker(GrmParentThread):
+class EncodeMicPacketWorker(GrmParentThread):
     def __init__(self, p_send_grm_queue):
         super().__init__()
         self.mic_stream = None
@@ -171,11 +180,14 @@ class MicWorker(GrmParentThread):
 
     def set_connect(self, p_connect_flag: bool):
         self.connect_flag = p_connect_flag
-        print(f"MicWorker connect:{self.connect_flag}")
+        print(f"EncodeMicPacketWorker connect:{self.connect_flag}")
 
     def run(self):
         while self.alive:
             while self.running:
+                global worker_seqnum
+                global worker_ssrc
+
                 self.mic_interface = pyaudio.PyAudio()
                 print(f"Mic Open, Mic Index:{self.device_index}")
                 self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True,
@@ -191,12 +203,19 @@ class MicWorker(GrmParentThread):
                         if self.join_flag is True:
                             _frames = self.mic_stream.read(SPK_CHUNK, exception_on_overflow=False)
 
+                            bin_data = self.bin_wrapper.to_bin_audio_data(_frames)
+                            bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=current_milli_time(),
+                                                                                  seqnum=worker_seqnum,
+                                                                                  ssrc=worker_ssrc,
+                                                                                  mediatype=TYPE_INDEX.TYPE_AUDIO,
+                                                                                  bindata=bin_data)
+                            worker_seqnum += 1
+
                             if global_comm_grm_type is True:
-                                bin_data = self.bin_wrapper.to_bin_audio_data(_frames)
                                 self.send_grm_queue.put(bin_data)
                             else:
                                 send_request = api.SendDataRequest(api.DataType.Audio,
-                                                                   myWindow.join_session.ownerId, _frames)
+                                                                   myWindow.join_session.ownerId, bin_data)
                                 # print("\nAudio SendData Request:", sendReq)
 
                                 res = api.SendData(send_request)
@@ -215,11 +234,11 @@ class MicWorker(GrmParentThread):
             QApplication.processEvents()
             time.sleep(0.1)
 
-        print("Stop MicWorker")
+        print("Stop EncodeMicPacketWorker")
         self.terminate()
 
 
-class SpeakerWorker(GrmParentThread):
+class DecodeSpeakerPacketWorker(GrmParentThread):
     def __init__(self, p_recv_audio_queue):
         super().__init__()
         self.speaker_stream = None
@@ -247,7 +266,8 @@ class SpeakerWorker(GrmParentThread):
                         bin_data = self.recv_audio_queue.pop()
                         if bin_data is not None:
                             _type, _value, _bin_data = self.bin_wrapper.parse_bin(bin_data)
-                            self.speaker_stream.write(_value)
+                            if _type == TYPE_INDEX.TYPE_AUDIO_ZIP:
+                                self.speaker_stream.write(_value)
                     time.sleep(0.1)
                 self.speaker_stream.stop_stream()
                 self.speaker_stream.close()
@@ -257,7 +277,7 @@ class SpeakerWorker(GrmParentThread):
             QApplication.processEvents()
             time.sleep(0.1)
 
-        print("Stop SpeakerWorker")
+        print("Stop DecodeSpeakerPacketWorker")
         self.terminate()
 
 
@@ -329,7 +349,7 @@ class PreviewWorker(GrmParentThread):
         self.terminate()
 
 
-class DecodePacketWorker(GrmParentThread):
+class DecodeVideoPacketWorker(GrmParentThread):
     def __init__(self, p_in_queue, p_out_queue):
         super().__init__()
         # self.main_view_location = main_view
@@ -370,7 +390,7 @@ class DecodePacketWorker(GrmParentThread):
 
     def set_connect(self, p_connect_flag: bool):
         self.connect_flag = p_connect_flag
-        print(f"DecodePacketWorker connect:{self.connect_flag}")
+        print(f"DecodeVideoPacketWorker connect:{self.connect_flag}")
 
     def change_avatar(self, new_avatar):
         self.predictor.set_source_image(new_avatar)
@@ -421,6 +441,12 @@ class DecodePacketWorker(GrmParentThread):
                             self.predictor.reset_frames()
                             self.find_key_frame = True
 
+                        elif _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME_REQUEST:
+                            global worker_video_encode_packet
+
+                            print('received key_frame_request.')
+                            worker_video_encode_packet.send_key_frame()
+
                         elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY:
                             # print(f"recv video queue:{self.in_queue.length()}")
                             if self.find_key_frame is True:
@@ -456,7 +482,7 @@ class DecodePacketWorker(GrmParentThread):
             time.sleep(0.1)
             # print('sleep')
 
-        print("Stop DecodePacketWorker")
+        print("Stop DecodeVideoPacketWorker")
         self.terminate()
 
 
@@ -505,20 +531,11 @@ class GrmCommWorker(GrmParentThread):
         if self.join_flag is False:
             return
 
-        _type, _value, _bin_data = self.bin_wrapper.parse_bin(bin_data)
-        # print(f'server:on_client_data type:{_type}, data_len:{len(_value)}')
-        if _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME:  # key frame receive
-            self.recv_video_queue.put(bin_data)
-        elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY:  # avatarify receive
-            self.recv_video_queue.put(bin_data)
-        elif _type == TYPE_INDEX.TYPE_VIDEO_SPIGA:  # SPIGA receive
-            self.recv_video_queue.put(bin_data)
-        elif _type == TYPE_INDEX.TYPE_AUDIO:  # audio data receive
-            # print(f"server:on_client_data audio type:{_type} receive_len:{len(bin_data)} value_len:{len(_value)}")
-            self.recv_audio_queue.put(bin_data)
-        else:
-            print('server:on_client_data not found type:{_type}')
-        pass
+        _version, _timestamp, _seqnum, _ssrc, _mediatype, _bindata_len, _bindata = self.bin_wrapper.parse_wrap_common_header(bin_data)
+        if _mediatype == TYPE_INDEX.TYPE_VIDEO:
+            self.recv_video_queue.put(_bindata)
+        elif _mediatype == TYPE_INDEX.TYPE_AUDIO:
+            self.recv_audio_queue.put(_bindata)
 
     def run(self):
         if global_comm_grm_type is True:
@@ -548,7 +565,13 @@ class GrmCommWorker(GrmParentThread):
                     # print(f'GrmCommWorker pop queue size:{self.send_packet_queue.length()}')
                     bin_data = self.send_packet_queue.pop()
                     if bin_data is not None:
-                        if global_comm_grm_type is True:
+                        if global_spiga_loopback is True:
+                            _version, _timestamp, _seqnum, _ssrc, _mediatype, _bindata_len, _bindata = self.bin_wrapper.parse_wrap_common_header(bin_data)
+                            if _mediatype == TYPE_INDEX.TYPE_VIDEO:
+                                self.recv_video_queue.put(_bindata)
+                            elif _mediatype == TYPE_INDEX.TYPE_AUDIO:
+                                self.recv_audio_queue.put(_bindata)
+                        elif global_comm_grm_type is True:
                             if self.join_flag is True:
                                 if self.client_connected is True:
                                     self.comm_bin.send_bin(bin_data)
@@ -576,7 +599,7 @@ encode packet
 '''
 
 
-class EncodePacketWorker(GrmParentThread):
+class EncodeVideoPacketWorker(GrmParentThread):
     video_signal_preview = QtCore.pyqtSignal(QtGui.QImage)
 
     def __init__(self, p_in_queue, p_out_queue):
@@ -636,6 +659,8 @@ class EncodePacketWorker(GrmParentThread):
         self.predictor.set_source_image(avatar)
 
     def key_frame_send(self, frame_orig):
+        global worker_seqnum
+
         if frame_orig is None:
             print("not Key Frame Make")
             return
@@ -679,7 +704,15 @@ class EncodePacketWorker(GrmParentThread):
 
             self.in_queue.clear()
             # self.out_queue.clear()
-            self.out_queue.put(key_frame_bin_data)
+
+            bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=current_milli_time(),
+                                                                  seqnum=worker_seqnum,
+                                                                  ssrc=worker_ssrc,
+                                                                  mediatype=TYPE_INDEX.TYPE_VIDEO,
+                                                                  bindata=key_frame_bin_data)
+            worker_seqnum += 1
+
+            self.out_queue.put(bin_data)
             print(
                 f'send_key_frame. in_queue:[{self.out_queue.name}] len:[{len(key_frame_bin_data)}], resolution:{frame.shape[0]} x {frame.shape[1]} '
                 f'size:{len(key_frame_bin_data)}')
@@ -689,6 +722,8 @@ class EncodePacketWorker(GrmParentThread):
     def run(self):
         # test
         global worker_grm_comm
+        global worker_seqnum
+        global worker_ssrc
 
         frame_proportion = 0.9
         frame_offset_x = 0
@@ -705,7 +740,7 @@ class EncodePacketWorker(GrmParentThread):
 
                     # print(f'###### frame type:[{type(frame)}]')
                     if type(frame) is bytes:
-                        print(f'EncodePacketWorker. frame type is invalid')
+                        print(f'EncodeVideoPacketWorker. frame type is invalid')
                         continue
 
                     if frame is None or self.join_flag is False:
@@ -737,6 +772,13 @@ class EncodePacketWorker(GrmParentThread):
                             bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
 
                     if bin_data is not None:
+                        bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=current_milli_time(),
+                                                                              seqnum=worker_seqnum,
+                                                                              ssrc=worker_ssrc,
+                                                                              mediatype=TYPE_INDEX.TYPE_VIDEO,
+                                                                              bindata=bin_data)
+                        worker_seqnum += 1
+
                         self.out_queue.put(bin_data)
                         # print(f' out_queue name:[{self.out_queue.name}] size:[{self.out_queue.length()}]')
 
@@ -744,7 +786,7 @@ class EncodePacketWorker(GrmParentThread):
                 time.sleep(0.1)
             time.sleep(0.1)
 
-        print("Stop EncodePacketWorker")
+        print("Stop EncodeVideoPacketWorker")
         self.terminate()
 
 
@@ -855,7 +897,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.comboBox_video_device.currentIndexChanged.connect(self.change_camera_device)
         self.button_exit.clicked.connect(self.exit_button)
 
-        # self.button_send_keyframe.clicked.connect(self.worker_encode_packet.send_key_frame)
+        # self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.send_key_frame)
         self.button_chat_send.setDisabled(True)
         self.lineEdit_input_chat.setDisabled(True)
         self.peer_id = ""
@@ -864,8 +906,8 @@ class MainWindowClass(QMainWindow, form_class):
         self.timer.timeout.connect(self.timeout)
 
     def timeout(self):
-        global worker_encode_packet
-        worker_encode_packet.send_key_frame()
+        global worker_video_encode_packet
+        worker_video_encode_packet.send_key_frame()
 
     def camera_device_init(self, max_count):
         pygame.camera.init()
@@ -1182,20 +1224,20 @@ class MainWindowClass(QMainWindow, form_class):
             print("\nText SendData fail.", res.code)
 
     def change_mic_device(self):
-        global worker_mic
-        worker_mic.pause_process()
+        global worker_mic_encode_packet
+        worker_mic_encode_packet.pause_process()
         time.sleep(2)
-        worker_mic.change_device(self.comboBox_mic.currentData())
-        # self.worker_mic.change_device(1)
-        worker_mic.resume_process()
+        worker_mic_encode_packet.change_device(self.comboBox_mic.currentData())
+        # self.worker_mic_encode_packet.change_device(1)
+        worker_mic_encode_packet.resume_process()
 
     def change_audio_device(self):
-        global worker_speaker
+        global worker_speaker_decode_packet
         print('main change speaker device start')
-        worker_speaker.pause_process()
+        worker_speaker_decode_packet.pause_process()
         time.sleep(2)
-        worker_speaker.change_device(self.comboBox_audio_device.currentData())
-        worker_speaker.resume_process()
+        worker_speaker_decode_packet.change_device(self.comboBox_audio_device.currentData())
+        worker_speaker_decode_packet.resume_process()
         print('main change speaker device end')
 
     def change_camera_device(self):
@@ -1210,36 +1252,36 @@ class MainWindowClass(QMainWindow, form_class):
     def exit_button(self):
         self.alived = False
 
-        global worker_decode_packet
+        global worker_video_decode_packet
         global worker_render_and_decode_frame
-        global worker_encode_packet
+        global worker_video_encode_packet
         global worker_capture_frame
         global worker_preview
-        global worker_mic
-        global worker_speaker
+        global worker_mic_encode_packet
+        global worker_speaker_decode_packet
         global worker_grm_comm
 
-        if worker_decode_packet is not None:
-            worker_decode_packet.stop_process()
-            worker_decode_packet.terminate()
+        if worker_video_decode_packet is not None:
+            worker_video_decode_packet.stop_process()
+            worker_video_decode_packet.terminate()
         if worker_render_and_decode_frame is not None:
             worker_render_and_decode_frame.stop_process()
             worker_render_and_decode_frame.terminate()
-        if worker_encode_packet is not None:
-            worker_encode_packet.stop_process()
-            worker_encode_packet.terminate()
+        if worker_video_encode_packet is not None:
+            worker_video_encode_packet.stop_process()
+            worker_video_encode_packet.terminate()
         if worker_capture_frame is not None:
             worker_capture_frame.stop_process()
             worker_capture_frame.terminate()
         if worker_preview is not None:
             worker_preview.stop_process()
             worker_preview.terminate()
-        if worker_mic is not None:
-            worker_mic.stop_process()
-            worker_mic.terminate()
-        if worker_speaker is not None:
-            worker_speaker.stop_process()
-            worker_speaker.terminate()
+        if worker_mic_encode_packet is not None:
+            worker_mic_encode_packet.stop_process()
+            worker_mic_encode_packet.terminate()
+        if worker_speaker_decode_packet is not None:
+            worker_speaker_decode_packet.stop_process()
+            worker_speaker_decode_packet.terminate()
         if worker_grm_comm is not None:
             worker_grm_comm.stop_process()
             worker_grm_comm.terminate()
@@ -1326,11 +1368,13 @@ class MainWindowClass(QMainWindow, form_class):
             data: api.DataNotification = change
             if data.dataType is api.DataType.FeatureBasedVideo:
                 print("\nVideo DataNotification received.")
-                if global_comm_grm_type is True:
-                    self.recv_video_queue.put(data.data)
+                _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
+                if _mediatype == TYPE_INDEX.TYPE_VIDEO:
+                    self.recv_video_queue.put(_bindata)
             elif data.dataType is api.DataType.Audio:
                 print("\nAudio DataNotification received.")
-                if global_comm_grm_type is True:
+                _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
+                if _mediatype == TYPE_INDEX.TYPE_AUDIO:
                     self.recv_audio_queue.put(data.data)
             elif data.dataType is api.DataType.Text:
                 print(f"\nText DataNotification received. peer_id:{data.peerId}")
@@ -1410,13 +1454,13 @@ class RoomInformationClass(QDialog):
 
 
 def all_start_worker():
-    global worker_decode_packet
+    global worker_video_decode_packet
     global worker_render_and_decode_frame
-    global worker_encode_packet
+    global worker_video_encode_packet
     global worker_capture_frame
     global worker_preview
-    global worker_mic
-    global worker_speaker
+    global worker_mic_encode_packet
+    global worker_speaker_decode_packet
     global worker_grm_comm
 
     if worker_capture_frame is not None:
@@ -1430,25 +1474,25 @@ def all_start_worker():
     else:
         worker_preview = PreviewWorker("preview", preview_video_queue, myWindow.preview)
 
-    if worker_encode_packet is not None:
-        worker_encode_packet.start_process()
+    if worker_video_encode_packet is not None:
+        worker_video_encode_packet.start_process()
     else:
-        worker_encode_packet = EncodePacketWorker(video_capture_queue, send_packet_queue)
+        worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue, send_packet_queue)
 
-    if worker_mic is not None:
-        worker_mic.start_process()
+    if worker_mic_encode_packet is not None:
+        worker_mic_encode_packet.start_process()
     else:
-        worker_mic = MicWorker(send_packet_queue)
+        worker_mic_encode_packet = EncodeMicPacketWorker(send_packet_queue)
 
     if worker_grm_comm is not None:
         worker_grm_comm.start_process()
     else:
         worker_grm_comm = GrmCommWorker(send_packet_queue, recv_video_queue, recv_audio_queue)
 
-    if worker_decode_packet is not None:
-        worker_decode_packet.start_process()
+    if worker_video_decode_packet is not None:
+        worker_video_decode_packet.start_process()
     else:
-        worker_decode_packet = DecodePacketWorker(recv_video_queue, main_view_video_queue)
+        worker_video_decode_packet = DecodeVideoPacketWorker(recv_video_queue, main_view_video_queue)
 
     if worker_render_and_decode_frame is not None:
         worker_render_and_decode_frame.start_process()
@@ -1456,82 +1500,86 @@ def all_start_worker():
         worker_render_and_decode_frame = RenderAndDecodeFrameWorker("main_view", main_view_video_queue,
                                                                     myWindow.main_view)
 
-    if worker_speaker is not None:
-        worker_speaker.start_process()
+    if worker_speaker_decode_packet is not None:
+        worker_speaker_decode_packet.start_process()
     else:
-        worker_speaker = SpeakerWorker(recv_audio_queue)
+        worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
 
 def all_stop_worker():
-    global worker_speaker
-    global worker_decode_packet
-    global worker_encode_packet
+    global worker_video_decode_packet
+    global worker_video_encode_packet
     global worker_capture_frame
     global worker_preview
-    global worker_mic
-    global worker_speaker
+    global worker_mic_encode_packet
+    global worker_speaker_decode_packet
     global worker_grm_comm
 
-    if worker_decode_packet is not None:
-        worker_decode_packet.pause_process()
+    if worker_video_decode_packet is not None:
+        worker_video_decode_packet.pause_process()
     if worker_render_and_decode_frame is not None:
         worker_render_and_decode_frame.pause_process()
-    if worker_encode_packet is not None:
-        worker_encode_packet.pause_process()
+    if worker_video_encode_packet is not None:
+        worker_video_encode_packet.pause_process()
     if worker_capture_frame is not None:
         worker_capture_frame.pause_process()
     if worker_preview is not None:
         worker_preview.pause_process()
-    if worker_mic is not None:
-        worker_mic.pause_process()
-    if worker_speaker is not None:
-        worker_speaker.pause_process()
+    if worker_mic_encode_packet is not None:
+        worker_mic_encode_packet.pause_process()
+    if worker_speaker_decode_packet is not None:
+        worker_speaker_decode_packet.pause_process()
     if worker_grm_comm is not None:
         worker_grm_comm.pause_process()
 
 
 def set_join(join_flag: bool):
-    global worker_decode_packet
+    global worker_video_decode_packet
     global worker_render_and_decode_frame
-    global worker_encode_packet
+    global worker_video_encode_packet
     global worker_capture_frame
     global worker_preview
-    global worker_mic
-    global worker_speaker
+    global worker_mic_encode_packet
+    global worker_speaker_decode_packet
     global worker_grm_comm
+    global worker_seqnum
+    global worker_ssrc
 
     if join_flag is True:
         if myWindow.comm_mode_type is True:
-            worker_decode_packet.create_spiga()
-            worker_encode_packet.create_spiga()
+            worker_video_decode_packet.create_spiga()
+            worker_video_encode_packet.create_spiga()
         else:
-            worker_decode_packet.create_avatarify()
-            worker_encode_packet.create_avatarify()
+            worker_video_decode_packet.create_avatarify()
+            worker_video_encode_packet.create_avatarify()
 
     print(f'set_join join_flag:{join_flag}')
+
+    worker_seqnum = 0
+    worker_ssrc = random.random()
 
     if worker_capture_frame is not None:
         worker_capture_frame.set_join(join_flag)
     if worker_preview is not None:
         worker_preview.set_join(join_flag)
-    if worker_encode_packet is not None:
-        worker_encode_packet.set_join(join_flag)
-    if worker_mic is not None:
-        worker_mic.set_join(join_flag)
+    if worker_video_encode_packet is not None:
+        worker_video_encode_packet.set_join(join_flag)
+    if worker_mic_encode_packet is not None:
+        worker_mic_encode_packet.set_join(join_flag)
     if worker_grm_comm is not None:
         worker_grm_comm.set_join(join_flag)
-    if worker_decode_packet is not None:
-        worker_decode_packet.set_join(join_flag)
+    if worker_video_decode_packet is not None:
+        worker_video_decode_packet.set_join(join_flag)
     if worker_render_and_decode_frame is not None:
         worker_render_and_decode_frame.set_join(join_flag)
-    if worker_speaker is not None:
-        worker_speaker.set_join(join_flag)
+    if worker_speaker_decode_packet is not None:
+        worker_speaker_decode_packet.set_join(join_flag)
 
 def set_connect(connect_flag: bool):
-    worker_decode_packet.set_connect(connect_flag)
+    worker_video_decode_packet.set_connect(connect_flag)
     # self.worker_capture_frame.set_connect(connect_flag)
-    worker_encode_packet.set_connect(connect_flag)
-    worker_mic.set_connect(connect_flag)
+    worker_video_encode_packet.set_connect(connect_flag)
+    worker_mic_encode_packet.set_connect(connect_flag)
 
 
 '''
@@ -1593,21 +1641,18 @@ if __name__ == '__main__':
                                               video_capture_queue, preview_video_queue)
     worker_preview = PreviewWorker("preview", preview_video_queue, myWindow.preview)                # VideoViewWorker
 
-    if global_spiga_loopback is True:
-        worker_encode_packet = EncodePacketWorker(video_capture_queue, recv_video_queue)
-    else:
-        worker_encode_packet = EncodePacketWorker(video_capture_queue, send_packet_queue)   # VideoProcessWorker
+    worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue, send_packet_queue)    # VideoProcessWorker
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     worker_grm_comm = GrmCommWorker(send_packet_queue, recv_video_queue, recv_audio_queue,          # GrmCommWorker
                                     opt.is_server, ip_address, port_number, device)
 
-    worker_decode_packet = DecodePacketWorker(recv_video_queue, main_view_video_queue)              # VideoRecvWorker
+    worker_video_decode_packet = DecodeVideoPacketWorker(recv_video_queue, main_view_video_queue)   # VideoRecvWorker
     worker_render_and_decode_frame = RenderAndDecodeFrameWorker("main_view",                        # VideoViewWorker
                                                                 main_view_video_queue, myWindow.main_view)
 
-    worker_mic = MicWorker(send_packet_queue)
-    worker_speaker = SpeakerWorker(recv_audio_queue)
+    worker_mic_encode_packet = EncodeMicPacketWorker(send_packet_queue)
+    worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
     myWindow.room_information_button.setDisabled(True)
     myWindow.show()

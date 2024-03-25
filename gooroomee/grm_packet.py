@@ -4,7 +4,9 @@ import cv2
 import struct
 
 class TYPE_INDEX:
-    TYPE_VIDEO_KEY_FRAME = 1000
+    TYPE_VIDEO = 1000
+    TYPE_VIDEO_KEY_FRAME = 1100
+    TYPE_VIDEO_KEY_FRAME_REQUEST = 1101
     TYPE_VIDEO_AVATARIFY = 1200
     TYPE_VIDEO_AVATARIFY_KP_NORM = 1201
     TYPE_VIDEO_AVATARIFY_JACOBIAN = 1202
@@ -15,8 +17,17 @@ class TYPE_INDEX:
     TYPE_VIDEO_SPIGA_SPIGA_LANDMARKS = 1304
     TYPE_VIDEO_SPIGA_SPIGA_HEADPOSE = 1305
     TYPE_AUDIO = 2000
+    TYPE_AUDIO_ZIP = 2100
 
 class BINWrapper:
+    def array_to_int(self, in_array):
+        x = 0
+        for c in in_array:
+            x <<= 8
+            # x |= c
+            x = int(np.uint64(x + c))
+        return x
+
     def to_tlv(self, _type, bin_data):
         bin_type = np.array([_type], dtype=np.int32)
         bin_type = np.frombuffer(bin_type.tobytes(), dtype=np.uint8)
@@ -36,10 +47,12 @@ class BINWrapper:
 
         _type = bin_data[_read_pos:_read_pos + 4]
         _type = np.frombuffer(_type, dtype=np.int32)[0]
+        #_type = self.array_to_int(_type)
         _read_pos += 4
 
         _length = bin_data[_read_pos:_read_pos + 4]
         _length = np.frombuffer(_length, dtype=np.int32)[0]
+        #_length = self.array_to_int(_length)
         _read_pos += 4
 
         _value = bin_data[_read_pos:_read_pos + _length]
@@ -74,7 +87,7 @@ class BINWrapper:
         to_bin = self.to_tlv(_type, to_bin)
 
         #print(f'### type:{_type} size:{len(to_bin.tobytes())}')
-        return to_bin.tobytes()
+        return to_bin       #.tobytes()
 
     def to_bin_features(self, frame, features_tracker, features_spiga):
         to_bin = bytes()
@@ -111,19 +124,54 @@ class BINWrapper:
         to_bin = self.to_tlv(_type, to_bin)
 
         # print(f'### type:{_type} size:{len(to_bin.tobytes())}')
-        return to_bin.tobytes()
+        return to_bin       #.tobytes()
 
     def to_bin_key_frame(self, frame):
         _type = TYPE_INDEX.TYPE_VIDEO_KEY_FRAME
         to_bin = self.to_tlv(_type, frame)
 
-        return to_bin.tobytes()
+        return to_bin       #.tobytes()
 
     def to_bin_audio_data(self, frame):
-        _type = TYPE_INDEX.TYPE_AUDIO
+        _type = TYPE_INDEX.TYPE_AUDIO_ZIP
         to_bin = self.to_tlv(_type, frame)
 
-        return to_bin.tobytes()
+        return to_bin       #.tobytes()
+
+    def to_bin_wrap_common_header(self, timestamp: np.uint64, seqnum: np.uint32, ssrc: np.uint32, mediatype: np.uint16, bindata, version: np.uint16 = 1):
+        '''
+        if bindata is None:
+            bindata = b''
+        bin_version = struct.pack('<H', version)            # H : unsigned short
+        bin_timestamp = struct.pack('<Q', timestamp)        # Q : unsigned long long
+        bin_seqnum = struct.pack('<L', seqnum)              # L : unsigned long
+        bin_ssrc = struct.pack('<L', ssrc)                  # L : unsigned long
+        bin_mediatype = struct.pack('<H', mediatype)        # H : unsigned short
+        bin_bindata_len = struct.pack('<L', len(bindata))   # L : unsigned long
+        '''
+
+        bin_version = np.array([version], dtype=np.uint16)
+        bin_version = np.frombuffer(bin_version.tobytes(), dtype=np.uint8)
+
+        bin_timestamp = np.array([timestamp], dtype=np.uint64)
+        bin_timestamp = np.frombuffer(bin_timestamp.tobytes(), dtype=np.uint8)
+
+        bin_seqnum = np.array([seqnum], dtype=np.uint32)
+        bin_seqnum = np.frombuffer(bin_seqnum.tobytes(), dtype=np.uint8)
+
+        bin_ssrc = np.array([ssrc], dtype=np.uint32)
+        bin_ssrc = np.frombuffer(bin_ssrc.tobytes(), dtype=np.uint8)
+
+        bin_mediatype = np.array([mediatype], dtype=np.uint16)
+        bin_mediatype = np.frombuffer(bin_mediatype.tobytes(), dtype=np.uint8)
+
+        if bindata is None:
+            bindata = []
+        bin_bindata_len = np.array([len(bindata)], dtype=np.uint16)
+        bin_bindata_len = np.frombuffer(bin_bindata_len.tobytes(), dtype=np.uint8)
+
+        bin_data = np.concatenate([bin_version, bin_timestamp, bin_seqnum, bin_ssrc, bin_mediatype, bin_bindata_len, bindata])
+        return bin_data.tobytes()
 
     def parse_bin(self, bin_data):
         _type, length, value, bin_data = self.from_tlv(bin_data)
@@ -185,5 +233,41 @@ class BINWrapper:
 
         return shape, features_tracker, features_spiga
 
+    def parse_wrap_common_header(self, bin_data):
+        _read_pos = 0
 
+        _version = bin_data[_read_pos:_read_pos + 2]
+        #_version = np.frombuffer(_version, dtype=np.uint16)[0]
+        _version = self.array_to_int(_version[::-1])
+        _read_pos += 2
+
+        _timestamp = bin_data[_read_pos:_read_pos + 8]
+        #_timestamp = np.frombuffer(_timestamp, dtype=np.uint64)[0]
+        _timestamp = self.array_to_int(_timestamp[::-1])
+        _read_pos += 8
+
+        _seqnum = bin_data[_read_pos:_read_pos + 4]
+        #_seqnum = np.frombuffer(_seqnum, dtype=np.uint32)[0]
+        _seqnum = self.array_to_int(_seqnum[::-1])
+        _read_pos += 4
+
+        _ssrc = bin_data[_read_pos:_read_pos + 4]
+        #_ssrc = np.frombuffer(_ssrc, dtype=np.uint32)[0]
+        _ssrc = self.array_to_int(_ssrc[::-1])
+        _read_pos += 4
+
+        _mediatype = bin_data[_read_pos:_read_pos + 2]
+        #_mediatype = np.frombuffer(_mediatype, dtype=np.uint16)[0]
+        _mediatype = self.array_to_int(_mediatype[::-1])
+        _read_pos += 2
+
+        _bindata_len = bin_data[_read_pos:_read_pos + 2]
+        #_bindata_len = np.frombuffer(_bindata_len, dtype=np.uint16)[0]
+        _bindata_len = self.array_to_int(_bindata_len[::-1])
+        _read_pos += 2
+
+        _bindata = bin_data[_read_pos:_read_pos + _bindata_len]
+        _read_pos += _bindata_len
+
+        return _version, _timestamp, _seqnum, _ssrc, _mediatype, _bindata_len, _bindata
 
