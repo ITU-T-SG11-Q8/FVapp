@@ -267,7 +267,7 @@ def start_client():
         if _bin_data is not None:
             while len(_bin_data) > 0:
                 _type, _value, _bin_data = grm_packet.parse_bin(_bin_data)
-                if _type == 1000:
+                if _type == 1100:   # key_frame
                     print(f'key_frame received. {len(_value)}')
                     key_frame = grm_packet.parse_key_frame(_value)
                     # cv2.imshow('key_frame', key_frame)
