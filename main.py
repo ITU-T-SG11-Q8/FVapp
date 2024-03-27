@@ -538,6 +538,12 @@ class GrmCommWorker(GrmParentThread):
             self.recv_video_queue.put(_bindata)
         elif _mediatype == TYPE_INDEX.TYPE_AUDIO:
             self.recv_audio_queue.put(_bindata)
+        elif _mediatype == TYPE_INDEX.TYPE_DATA:
+            _type, _value, _ = self.bin_wrapper.parse_bin(_bindata)
+            if _type == TYPE_INDEX.TYPE_DATA_CHAT:
+                chat_message = self.bin_wrapper.parse_chat(_value)
+                print(f"chat_message : {chat_message}")
+                myWindow.output_chat(chat_message)
 
     def run(self):
         if global_comm_grm_type is True:
@@ -907,6 +913,8 @@ class MainWindowClass(QMainWindow, form_class):
         self.timer.start(self.keyframe_period)
         self.timer.timeout.connect(self.timeout)
 
+        self.bin_wrapper = BINWrapper()
+
     def timeout(self):
         global worker_video_encode_packet
         worker_video_encode_packet.send_key_frame()
@@ -1213,7 +1221,13 @@ class MainWindowClass(QMainWindow, form_class):
         self.output_chat(input_message)
         self.lineEdit_input_chat.clear()
 
-        send_message = bytes(input_message, 'utf-8')
+        send_message = self.bin_wrapper.to_bin_chat_data(input_message)
+        send_message = self.bin_wrapper.to_bin_wrap_common_header(timestamp=current_milli_time(),
+                                                              seqnum=worker_seqnum,
+                                                              ssrc=worker_ssrc,
+                                                              mediatype=TYPE_INDEX.TYPE_DATA,
+                                                              bindata=send_message)
+
         send_request = api.SendDataRequest(api.DataType.Text, self.join_session.overlayId, send_message)
         print("\nText SendData Request:", send_request)
 
@@ -1369,20 +1383,24 @@ class MainWindowClass(QMainWindow, form_class):
         elif change.notificationType is api.NotificationType.DataNotification:
             data: api.DataNotification = change
             if data.dataType is api.DataType.FeatureBasedVideo:
-                print("\nVideo DataNotification received.")
+                print(f"\nVideo DataNotification received. peer_id:{data.peerId}")
                 _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
                 if _mediatype == TYPE_INDEX.TYPE_VIDEO:
                     self.recv_video_queue.put(_bindata)
             elif data.dataType is api.DataType.Audio:
-                print("\nAudio DataNotification received.")
+                print(f"\nAudio DataNotification received. peer_id:{data.peerId}")
                 _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
                 if _mediatype == TYPE_INDEX.TYPE_AUDIO:
                     self.recv_audio_queue.put(data.data)
             elif data.dataType is api.DataType.Text:
                 print(f"\nText DataNotification received. peer_id:{data.peerId}")
-                print(f"Text DataNotification received.{data.data}")
-                chat_message = str(data.data, 'utf-8')
-                self.output_chat(chat_message)
+                _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
+                if _mediatype == TYPE_INDEX.TYPE_DATA:
+                    _type, _value, _ = self.bin_wrapper.parse_bin(_bindata)
+                    if _type == TYPE_INDEX.TYPE_DATA_CHAT:
+                        chat_message = self.bin_wrapper.parse_chat(_value)
+                        print(f"chat_message : {chat_message}")
+                        self.output_chat(chat_message)
 
     def update_user_list(self):
         self.listWidget.clear()

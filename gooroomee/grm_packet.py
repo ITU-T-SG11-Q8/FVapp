@@ -18,6 +18,8 @@ class TYPE_INDEX:
     TYPE_VIDEO_SPIGA_SPIGA_HEADPOSE = 1305
     TYPE_AUDIO = 2000
     TYPE_AUDIO_ZIP = 2100
+    TYPE_DATA = 3000
+    TYPE_DATA_CHAT = 3100
 
 class BINWrapper:
     def array_to_int(self, in_array):
@@ -138,6 +140,13 @@ class BINWrapper:
 
         return to_bin       #.tobytes()
 
+    def to_bin_chat_data(self, chat_data):
+        chat_data = bytes(chat_data, 'utf-8')
+        _type = TYPE_INDEX.TYPE_DATA_CHAT
+        to_bin = self.to_tlv(_type, chat_data)
+
+        return to_bin       #.tobytes()
+
     def to_bin_wrap_common_header(self, timestamp: np.uint64, seqnum: np.uint32, ssrc: np.uint32, mediatype: np.uint16, bindata, version: np.uint16 = 1):
         '''
         if bindata is None:
@@ -232,6 +241,12 @@ class BINWrapper:
         features_spiga = {"landmarks": spiga_landmarks, "headpose": spiga_headpose}
 
         return shape, features_tracker, features_spiga
+
+    def parse_chat(self, bin_data):
+        chat_message = np.array(bin_data, dtype=np.uint8)
+        chat_message = str(chat_message, 'utf-8')
+
+        return chat_message
 
     def parse_wrap_common_header(self, bin_data):
         _read_pos = 0
