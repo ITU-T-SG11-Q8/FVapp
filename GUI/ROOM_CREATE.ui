@@ -126,9 +126,103 @@
      </item>
     </layout>
    </item>
-   <item row="4" column="0">
+   <item row="3" column="0">
+    <widget class="QGroupBox" name="groupBox">
+     <property name="minimumSize">
+      <size>
+       <width>500</width>
+       <height>50</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>500</width>
+       <height>50</height>
+      </size>
+     </property>
+     <property name="title">
+      <string>Channel List</string>
+     </property>
+     <widget class="QCheckBox" name="checkBox_facevideo">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>10</y>
+        <width>100</width>
+        <height>40</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>Face video</string>
+      </property>
+     </widget>
+     <widget class="QCheckBox" name="checkBox_text">
+      <property name="geometry">
+       <rect>
+        <x>260</x>
+        <y>10</y>
+        <width>100</width>
+        <height>40</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>Text</string>
+      </property>
+     </widget>
+     <widget class="QCheckBox" name="checkBox_audio">
+      <property name="geometry">
+       <rect>
+        <x>140</x>
+        <y>10</y>
+        <width>100</width>
+        <height>40</height>
+       </rect>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>100</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="text">
+       <string>Audio</string>
+      </property>
+     </widget>
+    </widget>
+   </item>
+   <item row="5" column="0">
     <layout class="QGridLayout" name="gridLayout_3">
-     <item row="0" column="2">
+     <item row="0" column="1">
       <widget class="QPushButton" name="button_cancel">
        <property name="maximumSize">
         <size>
@@ -141,7 +235,7 @@
        </property>
       </widget>
      </item>
-     <item row="0" column="3">
+     <item row="0" column="2">
       <widget class="QPushButton" name="button_ok">
        <property name="maximumSize">
         <size>
@@ -208,96 +302,56 @@
      </item>
     </layout>
    </item>
-   <item row="3" column="0">
-    <widget class="QGroupBox" name="groupBox">
+   <item row="4" column="0">
+    <widget class="QGroupBox" name="groupBox_2">
      <property name="minimumSize">
       <size>
-       <width>500</width>
+       <width>0</width>
        <height>50</height>
       </size>
      </property>
      <property name="maximumSize">
       <size>
-       <width>500</width>
-       <height>50</height>
+       <width>16777215</width>
+       <height>16777215</height>
+      </size>
+     </property>
+     <property name="baseSize">
+      <size>
+       <width>0</width>
+       <height>0</height>
       </size>
      </property>
      <property name="title">
-      <string>Channel List</string>
+      <string>Mode Type</string>
      </property>
-     <widget class="QCheckBox" name="checkBox_facevideo">
+     <widget class="QRadioButton" name="radioButton_snnm">
       <property name="geometry">
        <rect>
         <x>10</x>
-        <y>10</y>
-        <width>100</width>
-        <height>40</height>
+        <y>20</y>
+        <width>121</width>
+        <height>16</height>
        </rect>
       </property>
-      <property name="minimumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
       <property name="text">
-       <string>Face video</string>
+       <string>SNNM (avatarify)</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
       </property>
      </widget>
-     <widget class="QCheckBox" name="checkBox_text">
+     <widget class="QRadioButton" name="radioButton_kdm">
       <property name="geometry">
        <rect>
-        <x>340</x>
-        <y>10</y>
-        <width>100</width>
-        <height>40</height>
+        <x>140</x>
+        <y>20</y>
+        <width>151</width>
+        <height>16</height>
        </rect>
       </property>
-      <property name="minimumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
       <property name="text">
-       <string>Text</string>
-      </property>
-     </widget>
-     <widget class="QCheckBox" name="checkBox_audio">
-      <property name="geometry">
-       <rect>
-        <x>240</x>
-        <y>10</y>
-        <width>100</width>
-        <height>40</height>
-       </rect>
-      </property>
-      <property name="minimumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>100</width>
-        <height>40</height>
-       </size>
-      </property>
-      <property name="text">
-       <string>Audio</string>
+       <string>KDM (SPIGA)</string>
       </property>
      </widget>
     </widget>

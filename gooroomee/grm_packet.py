@@ -243,6 +243,7 @@ class BINWrapper:
         return shape, features_tracker, features_spiga
 
     def parse_chat(self, bin_data):
+        bin_data = bytearray(bin_data)
         chat_message = np.array(bin_data, dtype=np.uint8)
         chat_message = str(chat_message, 'utf-8')
 
