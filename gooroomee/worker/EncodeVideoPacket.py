@@ -2,25 +2,23 @@ import time
 import numpy as np
 import cv2
 
-from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
+from afy.utils import crop, resize
 from afy.arguments import opt
-from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE, ModeType
-from PyQt5 import QtCore
-from PyQt5 import QtGui, uic
 
+from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
+from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE, ModeType
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_predictor import GRMPredictor
 from gooroomee.grm_queue import GRMQueue
-from afy.utils import crop, resize
 
 
 class EncodeVideoPacketWorker(GrmParentThread):
-    video_signal_preview = QtCore.pyqtSignal(QtGui.QImage)
+    replace_image_frame = None
 
     def __init__(self,
                  p_in_queue,
                  p_out_queue,
-                 p_current_milli_time,
+                 p_get_current_milli_time,
                  p_get_worker_seqnum,
                  p_get_worker_ssrc,
                  p_get_grm_mode_type):
@@ -31,7 +29,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
         self.bin_wrapper = BINWrapper()
         self.in_queue: GRMQueue = p_in_queue
         self.out_queue: GRMQueue = p_out_queue
-        self.current_milli_time = p_current_milli_time
+        self.get_current_milli_time = p_get_current_milli_time
         self.get_worker_seqnum = p_get_worker_seqnum
         self.get_worker_ssrc = p_get_worker_ssrc
         self.get_grm_mode_type = p_get_grm_mode_type
@@ -39,22 +37,13 @@ class EncodeVideoPacketWorker(GrmParentThread):
         self.connect_flag: bool = False
         self.avatar_kp = None
         self.predictor = None
-        '''SPIGA'''
         self.spigaEncodeWrapper = None
-        ''''''
 
     def create_avatarify(self):
         if self.predictor is None:
             predictor_args = {
                 'config_path': opt.config,
                 'checkpoint_path': opt.checkpoint,
-                'relative': opt.relative,
-                'adapt_movement_scale': opt.adapt_scale,
-                'enc_downscale': opt.enc_downscale,
-                # 'listen_port': opt.listen_port,
-                # 'is_server': opt.is_server,
-                # 'server_ip': opt.server_ip,
-                # 'server_port': opt.server_port,
                 'keyframe_period': opt.keyframe_period
             }
 
@@ -78,22 +67,29 @@ class EncodeVideoPacketWorker(GrmParentThread):
         avatar = new_avatar
         self.predictor.set_source_image(avatar)
 
+    def set_replace_image_frame(self, frame):
+        if frame is None:
+            self.replace_image_frame = None
+        else:
+            self.replace_image_frame = frame.copy()
+
     def request_send_key_frame(self):
         self.request_send_key_frame_flag = True
 
     def send_key_frame(self, frame_orig):
         if frame_orig is None:
-            print("not Key Frame Make")
+            print("failed to make key_frame")
             return False
 
         # b, g, r = cv2.split(frame_orig)
         # frame = cv2.merge([r, g, b])
-        frame = frame_orig
+        img = None
 
-        separate_change_avatar = True
-        if separate_change_avatar is True:
+        if self.replace_image_frame is not None:
+            img = self.replace_image_frame
+        else:
             self.predictor.reset_frames()
-            avatar_frame = frame.copy()
+            avatar_frame = frame_orig.copy()
 
             # change avatar
             w, h = avatar_frame.shape[:2]
@@ -110,31 +106,31 @@ class EncodeVideoPacketWorker(GrmParentThread):
             cropped_img = avatar_frame[x: x + w, y: y + h]
             if cropped_img.ndim == 2:
                 cropped_img = np.tile(cropped_img[..., None], [1, 1, 3])
+            cropped_img = crop(cropped_img)[0]
 
             resize_img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))
 
             img = resize_img[..., :3][..., ::-1]
             img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
 
+        if img is not None:
             self.change_avatar(img)
 
-        separate_send_key_frame = True
-        if separate_send_key_frame is True:
-            key_frame = cv2.imencode('.jpg', frame)
+            key_frame = cv2.imencode('.jpg', img)
             key_frame_bin_data = self.bin_wrapper.to_bin_key_frame(key_frame[1])
 
             self.in_queue.clear()
             # self.out_queue.clear()
 
-            bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.current_milli_time(),
+            bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.get_current_milli_time(),
                                                                   seqnum=self.get_worker_seqnum(),
-                                                                  ssrc=self.self.get_worker_ssrc(),
+                                                                  ssrc=self.get_worker_ssrc(),
                                                                   mediatype=TYPE_INDEX.TYPE_VIDEO,
                                                                   bindata=key_frame_bin_data)
 
             self.out_queue.put(bin_data)
             print(
-                f'send_key_frame. in_queue:[{self.out_queue.name}] len:[{len(key_frame_bin_data)}], resolution:{frame.shape[0]} x {frame.shape[1]} '
+                f'send_key_frame. in_queue:[{self.out_queue.name}] len:[{len(key_frame_bin_data)}], resolution:{img.shape[0]} x {img.shape[1]} '
                 f'size:{len(key_frame_bin_data)}')
 
             self.sent_key_frame = True
@@ -188,7 +184,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                                 video_bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
 
                         if video_bin_data is not None:
-                            video_bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.current_milli_time(),
+                            video_bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.get_current_milli_time(),
                                                                                         seqnum=self.get_worker_seqnum(),
                                                                                         ssrc=self.get_worker_ssrc(),
                                                                                         mediatype=TYPE_INDEX.TYPE_VIDEO,

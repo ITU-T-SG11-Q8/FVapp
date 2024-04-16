@@ -13,7 +13,7 @@ class RoomJoinClass(QDialog):
         self.button_search_private.clicked.connect(self.search_private)
 
     def search_private(self):
-        private_key = QFileDialog.getOpenFileName(self)
+        private_key = QFileDialog.getOpenFileName(self, filter='*.pem')
         self.lineEdit_private_key.setText(private_key[0])
 
     def close_button(self):

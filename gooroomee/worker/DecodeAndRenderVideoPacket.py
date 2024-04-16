@@ -1,30 +1,33 @@
 import time
 import cv2
+from PyQt5.QtCore import pyqtSlot
 
 from GUI.MainWindow import MainWindowClass
+from GUI.RenderView import RenderViewClass
 from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
 from afy.arguments import opt
-from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE
+from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE, PeerData
 from PyQt5 import QtCore
 from PyQt5 import QtGui
 
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_predictor import GRMPredictor
 from gooroomee.grm_queue import GRMQueue
-from afy.utils import resize
+from afy.utils import crop, resize
 
 import numpy as np
 
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
     add_peer_view_signal = QtCore.pyqtSignal(str)
+    remove_peer_view_signal = QtCore.pyqtSignal(str)
+    render_views = {}
 
     def __init__(self,
                  p_main_window,
                  p_worker_video_encode_packet,
                  p_in_queue):
         super().__init__()
-        # self.main_view_location = main_view
         self.main_window: MainWindowClass = p_main_window
         self.worker_video_encode_packet = p_worker_video_encode_packet
         self.width = 0
@@ -37,11 +40,10 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         # self.lock = None
         self.cur_ava = 0
         self.bin_wrapper = BINWrapper()
-        '''SPIGA'''
         self.spigaDecodeWrapper = None
-        '''====='''
 
-        self.add_peer_view_signal.connect(self.main_window.add_peer_view)
+        self.add_peer_view_signal.connect(self.add_peer_view)
+        self.remove_peer_view_signal.connect(self.remove_peer_view)
 
     def create_avatarify(self):
         if self.predictor is None:
@@ -70,24 +72,6 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
     def change_avatar(self, new_avatar):
         self.predictor.set_source_image(new_avatar)
 
-    def draw_render_video(self, peer_id, frame):
-        if self.main_window.render_views.get(peer_id) is None:
-            self.add_peer_view_signal.emit(peer_id)
-            time.sleep(1)
-
-        if self.main_window.render_views.get(peer_id) is not None:
-            render_view = self.main_window.render_views[peer_id]
-            cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            img = frame.copy()
-
-            h, w, c = img.shape
-            q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
-            pixmap = QtGui.QPixmap.fromImage(q_img)
-            pixmap_resized = pixmap.scaledToWidth(render_view.render_location.width())
-            if pixmap_resized is not None:
-                render_view.render_location.setPixmap(pixmap)
-
     def run(self):
         while self.alive:
             self.find_key_frame = False
@@ -105,7 +89,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
                     # print(f'data received. {len(_bin_data)}')
                     if len(_bin_data) > 0:
-                        _type, _value, _bin_data = self.bin_wrapper.parse_bin(_bin_data)
+                        _type, _value, _ = self.bin_wrapper.parse_bin(_bin_data)
                         # print(f' in_queue:{self.in_queue.name} type:{_type}, data received:{len(_value)}')
                         if _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME:
                             print(f'queue:[{self.in_queue.length()}], '
@@ -126,6 +110,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                             cropped_img = key_frame[x: x + w, y: y + h]
                             if cropped_img.ndim == 2:
                                 cropped_img = np.tile(cropped_img[..., None], [1, 1, 3])
+                            cropped_img = crop(cropped_img)[0]
 
                             resize_img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))
 
@@ -174,6 +159,56 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             time.sleep(0.1)
             # print('sleep')
 
+            for render_view in self.render_views:
+                render_view.close()
+            self.render_views.clear()
+
         print("Stop DecodeAndRenderVideoPacketWorker")
         self.terminated = True
         # self.terminate()
+
+    def draw_render_video(self, peer_id, frame):
+        # have to remove from here
+        if self.main_window.render_views.get(peer_id) is None:
+            self.add_peer_view_signal.emit(peer_id)
+            time.sleep(1)
+        # have to remove to here
+
+        if self.main_window.render_views.get(peer_id) is not None:
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = frame.copy()
+
+            h, w, c = img.shape
+            q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
+            pixmap = QtGui.QPixmap.fromImage(q_img)
+
+            render_view = self.main_window.render_views[peer_id]
+            pixmap_resized = pixmap.scaledToWidth(render_view.render_location.width())
+            if pixmap_resized is not None:
+                render_view.render_location.setPixmap(pixmap)
+
+    @pyqtSlot(str)
+    def add_peer_view(self, peer_id):
+        if self.render_views.get(peer_id) is None:
+            render_view = RenderViewClass()
+            render_view.setWindowTitle(peer_id)
+            render_view.show()
+            self.render_views[peer_id] = render_view
+
+    @pyqtSlot(str)
+    def remove_peer_view(self, peer_id):
+        if self.render_views.get(peer_id) is not None:
+            render_view = self.render_views[peer_id]
+            render_view.close()
+            del self.render_views[peer_id]
+
+    def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):
+        if p_leave_flag is True:
+            if self.render_views.get(p_peer_data.peer_id) is not None:
+                self.remove_peer_view_signal.emit(p_peer_data.peer_id)
+                time.sleep(1)
+        else:
+            if self.render_views.get(p_peer_data.peer_id) is None:
+                self.add_peer_view_signal.emit(p_peer_data.peer_id)
+                time.sleep(1)
+

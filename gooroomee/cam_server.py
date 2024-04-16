@@ -265,8 +265,10 @@ def on_client_data(bin_data):
     # print(bin_data)
     pass
 
+
 def current_milli_time():
     return round(time.time() * 1000)
+
 
 def start_server():
     global lock
