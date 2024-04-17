@@ -231,6 +231,15 @@ if __name__ == '__main__':
     # lock_mic_audio_queue = threading.Lock()
     # lock_speaker_audio_queue = threading.Lock()
 
+    main_window = MainWindowClass(get_current_milli_time,
+                                  get_worker_seqnum,
+                                  get_worker_ssrc,
+                                  set_join)
+
+    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),  # WebcamWorker
+                                              video_capture_queue,
+                                              preview_video_queue)
+
     worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,     # VideoProcessWorker
                                                          send_video_queue,
                                                          get_current_milli_time,
@@ -238,19 +247,6 @@ if __name__ == '__main__':
                                                          get_worker_ssrc,
                                                          get_grm_mode_type)
 
-    main_window = MainWindowClass(send_chat_queue,
-                                  worker_capture_frame,
-                                  worker_video_encode_packet,
-                                  worker_video_decode_and_render_packet,
-                                  worker_speaker_decode_packet,
-                                  get_current_milli_time,
-                                  get_worker_seqnum,
-                                  get_worker_ssrc,
-                                  set_join)
-
-    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),     # WebcamWorker
-                                              video_capture_queue,
-                                              preview_video_queue)
     worker_preview = PreviewWorker("preview",
                                    preview_video_queue,
                                    main_window.preview)  # VideoViewWorker
@@ -276,6 +272,11 @@ if __name__ == '__main__':
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
+    main_window.set_workers(send_chat_queue,
+                            worker_capture_frame,
+                            worker_video_encode_packet,
+                            worker_video_decode_and_render_packet,
+                            worker_speaker_decode_packet)
     main_window.room_information_button.setDisabled(True)
     main_window.show()
 

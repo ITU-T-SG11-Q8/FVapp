@@ -11,7 +11,6 @@ from GUI.RoomJoin import RoomJoinClass
 from afy.arguments import opt
 from gooroomee.grm_defs import ModeType, SessionData, PeerData, IMAGE_SIZE, GrmParentThread, MediaQueueData
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
-from gooroomee.grm_queue import GRMQueue
 from typing import List
 from afy.utils import crop, resize
 
@@ -76,11 +75,6 @@ class MainWindowClass(QMainWindow, form_class):
     replace_image_frame = None
 
     def __init__(self,
-                 p_send_chat_queue,
-                 p_worker_capture_frame,
-                 p_worker_video_encode_packet,
-                 p_worker_video_decode_and_render_packet,
-                 p_worker_speaker_decode_packet,
                  p_get_current_milli_time,
                  p_get_worker_seqnum,
                  p_get_worker_ssrc,
@@ -99,11 +93,12 @@ class MainWindowClass(QMainWindow, form_class):
 
         print(f'key frame period:{self.keyframe_period}')
 
-        self.send_chat_queue: GRMQueue = p_send_chat_queue
-        self.worker_capture_frame = p_worker_capture_frame
-        self.worker_video_encode_packet = p_worker_video_encode_packet
-        self.worker_video_decode_and_render_packet = p_worker_video_decode_and_render_packet
-        self.worker_speaker_decode_packet = p_worker_speaker_decode_packet
+        self.send_chat_queue = None                         # GRMQueue
+        self.worker_capture_frame = None                    # CaptureFrameWorker
+        self.worker_video_encode_packet = None              # EncodeVideoPacketWorker
+        self.worker_video_decode_and_render_packet = None   # DecodeAndRenderVideoPacketWorker
+        self.worker_speaker_decode_packet = None            # DecodeSpeakerPacketWorker
+
         self.get_current_milli_time = p_get_current_milli_time
         self.get_worker_seqnum = p_get_worker_seqnum
         self.get_worker_ssrc = p_get_worker_ssrc
@@ -121,8 +116,6 @@ class MainWindowClass(QMainWindow, form_class):
         self.checkBox_use_replace_image.stateChanged.connect(self.change_use_replace_image)
         self.button_search_replace_image.clicked.connect(self.search_replace_image)
 
-        if self.worker_video_encode_packet is not None:
-            self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.request_send_key_frame)
         self.button_chat_send.setDisabled(True)
         self.lineEdit_input_chat.setDisabled(True)
         self.peer_id = ""
@@ -135,6 +128,21 @@ class MainWindowClass(QMainWindow, form_class):
         self.room_create_ui = RoomCreateClass(self.create_room_ok_func)
         self.join_ui = RoomJoinClass(self.send_join_room_func)
         self.room_information_ui = RoomInformationClass(self.modify_information_room)
+
+    def set_workers(self,
+                    p_send_chat_queue,
+                    p_worker_capture_frame,
+                    p_worker_video_encode_packet,
+                    p_worker_video_decode_and_render_packet,
+                    p_worker_speaker_decode_packet):
+        self.send_chat_queue = p_send_chat_queue                                                # GRMQueue
+        self.worker_capture_frame = p_worker_capture_frame                                      # CaptureFrameWorker
+        self.worker_video_encode_packet = p_worker_video_encode_packet                          # EncodeVideoPacketWorker
+        self.worker_video_decode_and_render_packet = p_worker_video_decode_and_render_packet    # DecodeAndRenderVideoPacketWorker
+        self.worker_speaker_decode_packet = p_worker_speaker_decode_packet                      # DecodeSpeakerPacketWorker
+
+        if self.worker_video_encode_packet is not None:
+            self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.request_send_key_frame)
 
     def timeout(self):
         if self.worker_video_encode_packet is not None:
@@ -240,6 +248,8 @@ class MainWindowClass(QMainWindow, form_class):
 
     def join_room(self):
         if self.join_button.text() == "Channel Join":
+            self.join_ui.clear_value()
+
             if self.join_session.overlayId is None or len(self.join_session.overlayId) == 0:
                 self.join_ui.button_query.setDisabled(False)
                 self.join_ui.comboBox_overlay_id.setDisabled(False)
@@ -318,6 +328,8 @@ class MainWindowClass(QMainWindow, form_class):
 
         if res.code is not api.ResponseCode.Success:
             print("\nLeave fail.", res.code)
+
+        self.join_session.clear_value()
 
     def information_room(self):
         if self.join_session.overlayId is not None:
@@ -449,13 +461,12 @@ class MainWindowClass(QMainWindow, form_class):
             print('main change speaker device end')
 
     def change_camera_device(self):
-        print('camera index change start')
+        print(f'camera index change. {self.comboBox_video_device.currentData()}')
         if self.worker_capture_frame is not None:
             self.worker_capture_frame.pause_process()
             time.sleep(1)
             self.worker_capture_frame.change_device(self.comboBox_video_device.currentData())
             self.worker_capture_frame.resume_process()
-            print('camera index change end')
 
     def exit_button(self):
         threads: List[GrmParentThread] = [

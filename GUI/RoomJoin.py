@@ -12,6 +12,12 @@ class RoomJoinClass(QDialog):
         self.button_query.clicked.connect(self.overlay_id_search_func)
         self.button_search_private.clicked.connect(self.search_private)
 
+    def clear_value(self):
+        self.comboBox_overlay_id.clear()
+        self.lineEdit_peer_id.setText('')
+        self.lineEdit_display_name.setText('')
+        self.lineEdit_private_key.setText('')
+
     def search_private(self):
         private_key = QFileDialog.getOpenFileName(self, filter='*.pem')
         self.lineEdit_private_key.setText(private_key[0])

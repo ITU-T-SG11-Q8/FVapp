@@ -77,7 +77,7 @@ class CaptureFrameWorker(GrmParentThread):
                     self.preview_queue.put(preview_frame)
                     time.sleep(0.1)
 
-                print('# video interface release index = [', self.device_index, ']')
+                print(f'video interface release index = [{self.device_index}]')
                 cap.stop()
             time.sleep(0.1)
 

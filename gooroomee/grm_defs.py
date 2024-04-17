@@ -37,6 +37,9 @@ class SessionData:
     channelList: List[Channel] = None
 
     def __init__(self):
+        self.clear_value()
+
+    def clear_value(self):
         self.adminKey = ''
         self.overlayId = ''
         self.title = ''
@@ -125,5 +128,3 @@ class GrmParentThread(QThread):
     def set_join(self, p_join_flag: bool):
         # print(f'set_join join_flag = [{p_join_flag}]')
         self.join_flag = p_join_flag
-
-
