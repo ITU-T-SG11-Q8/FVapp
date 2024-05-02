@@ -104,14 +104,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                 h = w
 
             cropped_img = avatar_frame[x: x + w, y: y + h]
-            if cropped_img.ndim == 2:
-                cropped_img = np.tile(cropped_img[..., None], [1, 1, 3])
-            cropped_img = crop(cropped_img)[0]
-
-            resize_img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))
-
-            img = resize_img[..., :3][..., ::-1]
-            img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
+            img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
         if img is not None:
             self.change_avatar(img)
@@ -167,11 +160,18 @@ class EncodeVideoPacketWorker(GrmParentThread):
                         if self.send_key_frame(frame_orig):
                             self.request_send_key_frame_flag = False
                     else:
-                        frame = frame[..., ::-1]
-                        frame, (frame_offset_x, frame_offset_y) = crop(frame, p=frame_proportion,
-                                                                       offset_x=frame_offset_x,
-                                                                       offset_y=frame_offset_y)
-                        frame = resize(frame, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+                        w, h = frame.shape[:2]
+                        x = 0
+                        y = 0
+                        if w > h:
+                            x = int((w - h) / 2)
+                            w = h
+                        elif h > w:
+                            y = int((h - w) / 2)
+                            h = w
+
+                        cropped_img = frame[x: x + w, y: y + h]
+                        frame = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
                         video_bin_data = None
                         if self.get_grm_mode_type() == ModeType.KDM:

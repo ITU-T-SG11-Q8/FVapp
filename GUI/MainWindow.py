@@ -98,6 +98,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.worker_video_encode_packet = None              # EncodeVideoPacketWorker
         self.worker_video_decode_and_render_packet = None   # DecodeAndRenderVideoPacketWorker
         self.worker_speaker_decode_packet = None            # DecodeSpeakerPacketWorker
+        self.worker_grm_comm = None                         # GrmCommWorker
 
         self.get_current_milli_time = p_get_current_milli_time
         self.get_worker_seqnum = p_get_worker_seqnum
@@ -134,12 +135,14 @@ class MainWindowClass(QMainWindow, form_class):
                     p_worker_capture_frame,
                     p_worker_video_encode_packet,
                     p_worker_video_decode_and_render_packet,
-                    p_worker_speaker_decode_packet):
+                    p_worker_speaker_decode_packet,
+                    p_worker_grm_comm):
         self.send_chat_queue = p_send_chat_queue                                                # GRMQueue
         self.worker_capture_frame = p_worker_capture_frame                                      # CaptureFrameWorker
         self.worker_video_encode_packet = p_worker_video_encode_packet                          # EncodeVideoPacketWorker
         self.worker_video_decode_and_render_packet = p_worker_video_decode_and_render_packet    # DecodeAndRenderVideoPacketWorker
         self.worker_speaker_decode_packet = p_worker_speaker_decode_packet                      # DecodeSpeakerPacketWorker
+        self.worker_grm_comm = p_worker_grm_comm                                                # GrmCommWorker
 
         if self.worker_video_encode_packet is not None:
             self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.request_send_key_frame)
@@ -319,7 +322,8 @@ class MainWindowClass(QMainWindow, form_class):
             self.leave_room()
 
     def leave_room(self):
-        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId, peerId=self.peer_id,
+        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId,
+                                         peerId=self.peer_id,
                                          accessKey=self.join_session.accessKey))
 
         self.set_join(False)
@@ -516,15 +520,28 @@ class MainWindowClass(QMainWindow, form_class):
             frame = cv2.imdecode(frame, flags=1)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            self.replace_image_frame = resize(crop(frame)[0], (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+            img = frame
+            w, h = frame.shape[:2]
+            if w != IMAGE_SIZE or h != IMAGE_SIZE:
+                x = 0
+                y = 0
+                if w > h:
+                    x = int((w - h) / 2)
+                    w = h
+                elif h > w:
+                    y = int((h - w) / 2)
+                    h = w
+
+                cropped_img = frame[x: x + w, y: y + h]
+                img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+
+            self.replace_image_frame = img
 
             if self.checkBox_use_replace_image.isChecked() is True and self.worker_video_encode_packet is not None:
                 self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
 
-            img = self.replace_image_frame.copy()
-
-            h, w, c = img.shape
-            q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
+            h, w, c = self.replace_image_frame.shape
+            q_img = QtGui.QImage(self.replace_image_frame.data, w, h, w * c, QtGui.QImage.Format_RGB888)
             pixmap = QtGui.QPixmap.fromImage(q_img)
             pixmap_resized = pixmap.scaledToWidth(self.replace_image_view.width())
             if pixmap_resized is not None:
@@ -573,7 +590,11 @@ class MainWindowClass(QMainWindow, form_class):
             self.worker_speaker_decode_packet.update_user(p_peer_data, p_leave_flag)
 
         if p_leave_flag is True:
-            self.join_peer.remove(p_peer_data)
+            if self.join_peer is not None:
+                for i in self.join_peer:
+                    if p_peer_data.peer_id == i.peer_id:
+                        self.join_peer.remove(p_peer_data)
+                        break
         else:
             add_user = True
             if self.join_peer is not None:

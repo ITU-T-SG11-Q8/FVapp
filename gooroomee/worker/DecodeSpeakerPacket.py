@@ -55,20 +55,6 @@ class DecodeSpeakerPacketWorker(GrmParentThread):
         # self.terminate()
 
     def write_speaker_stream(self, peer_id, bin_data):
-        # have to remove from here
-        if self.speaker_streams.get(peer_id) is None:
-            print(f"Speaker Open, Index:{self.device_index}")
-            try:
-                speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,
-                                                             frames_per_buffer=SPK_CHUNK, output=True)
-            except Exception as err:
-                print(str(err))
-            print(f"Speaker End, Index:{self.device_index} speaker_stream:{speaker_stream}")
-
-            self.speaker_streams[peer_id] = speaker_stream
-            time.sleep(1)
-        # have to remove to here
-
         if self.speaker_streams.get(peer_id) is not None:
             speaker_stream = self.speaker_streams[peer_id]
 
@@ -79,7 +65,14 @@ class DecodeSpeakerPacketWorker(GrmParentThread):
 
     def add_peer_stream(self, peer_id):
         if self.speaker_streams.get(peer_id) is None:
-            self.internal_create_speaker_stream(peer_id)
+            print(f"Speaker Open, Index:{self.device_index}")
+            try:
+                speaker_stream = self.speaker_interface.open(rate=RATE, channels=CHANNELS, format=FORMAT,
+                                                             frames_per_buffer=SPK_CHUNK, output=True)
+                print(f"Speaker End, Index:{self.device_index} speaker_stream:{speaker_stream}")
+                self.speaker_streams[peer_id] = speaker_stream
+            except Exception as err:
+                print(str(err))
 
     def remove_peer_stream(self, peer_id):
         if self.speaker_streams.get(peer_id) is not None:

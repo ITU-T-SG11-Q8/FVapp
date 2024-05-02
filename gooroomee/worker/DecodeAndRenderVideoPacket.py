@@ -19,7 +19,7 @@ import numpy as np
 
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
-    add_peer_view_signal = QtCore.pyqtSignal(str)
+    add_peer_view_signal = QtCore.pyqtSignal(str, str)
     remove_peer_view_signal = QtCore.pyqtSignal(str)
     render_views = {}
 
@@ -44,6 +44,10 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
         self.add_peer_view_signal.connect(self.add_peer_view)
         self.remove_peer_view_signal.connect(self.remove_peer_view)
+
+    def set_join(self, p_join_flag: bool):
+        GrmParentThread.set_join(self, p_join_flag)
+        self.remove_peer_view_signal.emit('all')
 
     def create_avatarify(self):
         if self.predictor is None:
@@ -96,26 +100,21 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                                   f'key_frame received. {len(_value)}, queue_size:{self.in_queue.length()}')
                             key_frame = self.bin_wrapper.parse_key_frame(_value)
 
+                            img = key_frame
                             w, h = key_frame.shape[:2]
-                            x = 0
-                            y = 0
+                            if w != IMAGE_SIZE or h != IMAGE_SIZE:
+                                x = 0
+                                y = 0
 
-                            if w > h:
-                                x = int((w - h) / 2)
-                                w = h
-                            elif h > w:
-                                y = int((h - w) / 2)
-                                h = w
+                                if w > h:
+                                    x = int((w - h) / 2)
+                                    w = h
+                                elif h > w:
+                                    y = int((h - w) / 2)
+                                    h = w
 
-                            cropped_img = key_frame[x: x + w, y: y + h]
-                            if cropped_img.ndim == 2:
-                                cropped_img = np.tile(cropped_img[..., None], [1, 1, 3])
-                            cropped_img = crop(cropped_img)[0]
-
-                            resize_img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))
-
-                            img = resize_img[..., :3][..., ::-1]
-                            img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
+                                cropped_img = key_frame[x: x + w, y: y + h]
+                                img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
                             self.change_avatar(img)
                             self.predictor.reset_frames()
@@ -159,22 +158,14 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             time.sleep(0.1)
             # print('sleep')
 
-            for render_view in self.render_views:
-                render_view.close()
-            self.render_views.clear()
+            self.remove_peer_view_signal.emit('all')
 
         print("Stop DecodeAndRenderVideoPacketWorker")
         self.terminated = True
         # self.terminate()
 
     def draw_render_video(self, peer_id, frame):
-        # have to remove from here
-        if self.main_window.render_views.get(peer_id) is None:
-            self.add_peer_view_signal.emit(peer_id)
-            time.sleep(1)
-        # have to remove to here
-
-        if self.main_window.render_views.get(peer_id) is not None:
+        if self.render_views.get(peer_id) is not None:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = frame.copy()
 
@@ -182,22 +173,26 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
             pixmap = QtGui.QPixmap.fromImage(q_img)
 
-            render_view = self.main_window.render_views[peer_id]
+            render_view = self.render_views[peer_id]
             pixmap_resized = pixmap.scaledToWidth(render_view.render_location.width())
             if pixmap_resized is not None:
                 render_view.render_location.setPixmap(pixmap)
 
-    @pyqtSlot(str)
-    def add_peer_view(self, peer_id):
+    @pyqtSlot(str, str)
+    def add_peer_view(self, peer_id, display_name):
         if self.render_views.get(peer_id) is None:
             render_view = RenderViewClass()
-            render_view.setWindowTitle(peer_id)
+            render_view.setWindowTitle(display_name)
             render_view.show()
             self.render_views[peer_id] = render_view
 
     @pyqtSlot(str)
     def remove_peer_view(self, peer_id):
-        if self.render_views.get(peer_id) is not None:
+        if peer_id == 'all':
+            for render_view in self.render_views:
+                render_view.close()
+            self.render_views.clear()
+        elif self.render_views.get(peer_id) is not None:
             render_view = self.render_views[peer_id]
             render_view.close()
             del self.render_views[peer_id]
@@ -206,9 +201,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         if p_leave_flag is True:
             if self.render_views.get(p_peer_data.peer_id) is not None:
                 self.remove_peer_view_signal.emit(p_peer_data.peer_id)
-                time.sleep(1)
         else:
             if self.render_views.get(p_peer_data.peer_id) is None:
-                self.add_peer_view_signal.emit(p_peer_data.peer_id)
-                time.sleep(1)
+                self.add_peer_view_signal.emit(p_peer_data.peer_id, p_peer_data.display_name)
 

@@ -276,7 +276,8 @@ if __name__ == '__main__':
                             worker_capture_frame,
                             worker_video_encode_packet,
                             worker_video_decode_and_render_packet,
-                            worker_speaker_decode_packet)
+                            worker_speaker_decode_packet,
+                            worker_grm_comm)
     main_window.room_information_button.setDisabled(True)
     main_window.show()
 
