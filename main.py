@@ -46,20 +46,14 @@ worker_grm_comm: GrmCommWorker = None
 worker_video_decode_and_render_packet: DecodeAndRenderVideoPacketWorker = None
 worker_speaker_decode_packet: DecodeSpeakerPacketWorker = None
 
-worker_seqnum: int = 0
+worker_seq_num: int = 0
 worker_ssrc: int = 0
 
-global_comm_grm_type = False  # JAYBE
 
-
-def current_milli_time():
-    return round(time.time() * 1000)
-
-
-def get_worker_seqnum():
-    global worker_seqnum
-    ret = worker_seqnum
-    worker_seqnum += 1
+def get_worker_seq_num():
+    global worker_seq_num
+    ret = worker_seq_num
+    worker_seq_num += 1
     return ret
 
 
@@ -73,10 +67,6 @@ def get_grm_mode_type():
     return main_window.mode_type
 
 
-def get_global_comm_grm_type():
-    return global_comm_grm_type
-
-
 def all_start_worker():
     global worker_video_decode_and_render_packet
     global worker_video_encode_packet
@@ -86,50 +76,48 @@ def all_start_worker():
     global worker_speaker_decode_packet
     global worker_grm_comm
 
-    if worker_capture_frame is not None:
-        worker_capture_frame.start_process()
-    else:
-        worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),
-                                                  video_capture_queue, preview_video_queue)
-
-    if worker_preview is not None:
-        worker_preview.start_process()
-    else:
-        worker_preview = PreviewWorker("preview", preview_video_queue, main_window.preview)
-
     if worker_video_encode_packet is not None:
         worker_video_encode_packet.start_process()
     else:
         worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,
                                                              send_video_queue,
-                                                             current_milli_time,
-                                                             get_worker_seqnum,
+                                                             get_worker_seq_num,
                                                              get_worker_ssrc,
                                                              get_grm_mode_type)
+
+    if worker_capture_frame is not None:
+        worker_capture_frame.start_process()
+    else:
+        worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),
+                                                  worker_video_encode_packet,
+                                                  video_capture_queue,
+                                                  preview_video_queue)
+
+    if worker_preview is not None:
+        worker_preview.start_process()
+    else:
+        worker_preview = PreviewWorker("preview",
+                                       preview_video_queue,
+                                       main_window.preview)
 
     if worker_mic_encode_packet is not None:
         worker_mic_encode_packet.start_process()
     else:
         worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-                                                         current_milli_time,
-                                                         get_worker_seqnum,
+                                                         get_worker_seq_num,
                                                          get_worker_ssrc)
 
     if worker_grm_comm is not None:
         worker_grm_comm.start_process()
     else:
-        worker_grm_comm = GrmCommWorker(main_window,
+        worker_grm_comm = GrmCommWorker(main_window,              # GrmCommWorker
                                         send_audio_queue,
                                         send_video_queue,
-                                        send_chat_queue,  # GrmCommWorker
+                                        send_chat_queue,
                                         recv_audio_queue,
                                         recv_video_queue,
-                                        opt.is_server,
-                                        ip_address,
-                                        port_number,
                                         device,
-                                        set_connect,
-                                        get_global_comm_grm_type)
+                                        set_connect)
 
     if worker_video_decode_and_render_packet is not None:
         worker_video_decode_and_render_packet.start_process()
@@ -177,7 +165,7 @@ def set_join(join_flag: bool):
     global worker_mic_encode_packet
     global worker_speaker_decode_packet
     global worker_grm_comm
-    global worker_seqnum
+    global worker_seq_num
     global worker_ssrc
 
     if join_flag is True:
@@ -190,7 +178,7 @@ def set_join(join_flag: bool):
 
     print(f'set_join join_flag:{join_flag}')
 
-    worker_seqnum = 0
+    worker_seq_num = 0
     worker_ssrc = random.random()
 
     if worker_capture_frame is not None:
@@ -225,9 +213,6 @@ if _platform == 'darwin':
         exit()
 
 if __name__ == '__main__':
-    # import os
-    # os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-
     api.StartGrpcServer()
     api.SetLogLevel('INFO')
 
@@ -235,41 +220,27 @@ if __name__ == '__main__':
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
 
-    port_number = 0
-    ip_address = ""
-    if opt.is_server is True:
-        port_number = opt.listen_port
-    else:
-        ip_address = opt.server_ip
-        port_number = opt.server_port
-
-    # lock_mic_audio_queue = threading.Lock()
-    # lock_speaker_audio_queue = threading.Lock()
-
-    worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,
-                                                         send_video_queue,
-                                                         current_milli_time,
-                                                         get_worker_seqnum,
-                                                         get_worker_ssrc,
-                                                         get_grm_mode_type)  # VideoProcessWorker
-
-    main_window = MainWindowClass(send_chat_queue,
-                                  worker_video_encode_packet,
-                                  current_milli_time,
-                                  get_worker_seqnum,
+    main_window = MainWindowClass(get_worker_seq_num,
                                   get_worker_ssrc,
                                   set_join)
 
-    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),     # WebcamWorker
+    worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,     # VideoProcessWorker
+                                                         send_video_queue,
+                                                         get_worker_seq_num,
+                                                         get_worker_ssrc,
+                                                         get_grm_mode_type)
+
+    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),  # WebcamWorker
+                                              worker_video_encode_packet,
                                               video_capture_queue,
                                               preview_video_queue)
+
     worker_preview = PreviewWorker("preview",
                                    preview_video_queue,
                                    main_window.preview)  # VideoViewWorker
 
     worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-                                                     current_milli_time,
-                                                     get_worker_seqnum,
+                                                     get_worker_seq_num,
                                                      get_worker_ssrc)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -279,12 +250,8 @@ if __name__ == '__main__':
                                     send_chat_queue,  # GrmCommWorker
                                     recv_audio_queue,
                                     recv_video_queue,
-                                    opt.is_server,
-                                    ip_address,
-                                    port_number,
                                     device,
-                                    set_connect,
-                                    get_global_comm_grm_type)
+                                    set_connect)
 
     worker_video_decode_and_render_packet = DecodeAndRenderVideoPacketWorker(main_window,
                                                                              worker_video_encode_packet,
@@ -292,6 +259,12 @@ if __name__ == '__main__':
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
+    main_window.set_workers(send_chat_queue,
+                            worker_capture_frame,
+                            worker_video_encode_packet,
+                            worker_video_decode_and_render_packet,
+                            worker_speaker_decode_packet,
+                            worker_grm_comm)
     main_window.room_information_button.setDisabled(True)
     main_window.show()
 

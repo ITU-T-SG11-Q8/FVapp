@@ -1,24 +1,25 @@
 import os
 
 import pyaudio
-from PyQt5 import uic
-from PyQt5.QtCore import pyqtSignal, QTimer, pyqtSlot
-from PyQt5.QtWidgets import QMainWindow
+from PyQt5 import uic, QtGui
+from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QMainWindow, QFileDialog
 
-from GUI.RenderView import RenderViewClass
 from GUI.RoomCreate import RoomCreateClass
 from GUI.RoomInformation import RoomInformationClass
 from GUI.RoomJoin import RoomJoinClass
 from afy.arguments import opt
 from gooroomee.grm_defs import ModeType, SessionData, PeerData, IMAGE_SIZE, GrmParentThread, MediaQueueData
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
-from gooroomee.grm_queue import GRMQueue
 from typing import List
+from afy.utils import crop, resize
 
 import hp2papi as api
 import time
 import pygame
 import pygame.camera
+import cv2
+import numpy as np
 
 form_class = uic.loadUiType("GUI/MAIN_WINDOW.ui")[0]
 
@@ -69,17 +70,16 @@ def internal_create_channel_facevideo(mode_type):
     return face_video_channel
 
 
+def get_current_time_ms():
+    return round(time.time() * 1000)
+
+
 class MainWindowClass(QMainWindow, form_class):
     mode_type: ModeType = ModeType.SNNM
-    render_views = {}
-    add_peer_view_signal = pyqtSignal(str)
-    remove_peer_view_signal = pyqtSignal(str)
+    replace_image_frame = None
 
     def __init__(self,
-                 p_send_chat_queue,
-                 p_worker_video_encode_packet,
-                 p_current_milli_time,
-                 p_get_worker_seqnum,
+                 p_get_worker_seq_num,
                  p_get_worker_ssrc,
                  p_set_join):
         super().__init__()
@@ -92,9 +92,20 @@ class MainWindowClass(QMainWindow, form_class):
 
         self.keyframe_period = opt.keyframe_period
         if self.keyframe_period is None:
-            self.keyframe_period = 10000
+            self.keyframe_period = 0
 
-        print(f'###key frame period:{self.keyframe_period}')
+        print(f'key frame period:{self.keyframe_period}')
+
+        self.send_chat_queue = None                         # GRMQueue
+        self.worker_capture_frame = None                    # CaptureFrameWorker
+        self.worker_video_encode_packet = None              # EncodeVideoPacketWorker
+        self.worker_video_decode_and_render_packet = None   # DecodeAndRenderVideoPacketWorker
+        self.worker_speaker_decode_packet = None            # DecodeSpeakerPacketWorker
+        self.worker_grm_comm = None                         # GrmCommWorker
+
+        self.get_worker_seq_num = p_get_worker_seq_num
+        self.get_worker_ssrc = p_get_worker_ssrc
+        self.set_join = p_set_join
 
         self.create_button.clicked.connect(self.create_room)
         self.join_button.clicked.connect(self.join_room)
@@ -105,33 +116,45 @@ class MainWindowClass(QMainWindow, form_class):
         self.comboBox_audio_device.currentIndexChanged.connect(self.change_audio_device)
         self.comboBox_video_device.currentIndexChanged.connect(self.change_camera_device)
         self.button_exit.clicked.connect(self.exit_button)
+        self.checkBox_use_replace_image.stateChanged.connect(self.change_use_replace_image)
+        self.button_search_replace_image.clicked.connect(self.search_replace_image)
 
-        # self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.send_key_frame)
         self.button_chat_send.setDisabled(True)
         self.lineEdit_input_chat.setDisabled(True)
         self.peer_id = ""
         self.timer = QTimer(self)
-        self.timer.start(self.keyframe_period)
-        self.timer.timeout.connect(self.timeout)
 
-        self.send_chat_queue: GRMQueue = p_send_chat_queue
-        self.worker_video_encode_packet = p_worker_video_encode_packet
-        self.current_milli_time = p_current_milli_time
-        self.get_worker_seqnum = p_get_worker_seqnum
-        self.get_worker_ssrc = p_get_worker_ssrc
-        self.set_join = p_set_join
+        if self.keyframe_period > 0:
+            self.timer.start(self.keyframe_period)
+            self.timer.timeout.connect(self.timeout_key_frame)
 
         self.bin_wrapper = BINWrapper()
-
-        self.add_peer_view_signal.connect(self.add_peer_view)
-        self.remove_peer_view_signal.connect(self.remove_peer_view)
 
         self.room_create_ui = RoomCreateClass(self.create_room_ok_func)
         self.join_ui = RoomJoinClass(self.send_join_room_func)
         self.room_information_ui = RoomInformationClass(self.modify_information_room)
 
-    def timeout(self):
-        self.worker_video_encode_packet.request_send_key_frame()
+    def set_workers(self,
+                    p_send_chat_queue,
+                    p_worker_capture_frame,
+                    p_worker_video_encode_packet,
+                    p_worker_video_decode_and_render_packet,
+                    p_worker_speaker_decode_packet,
+                    p_worker_grm_comm):
+        self.send_chat_queue = p_send_chat_queue                                                # GRMQueue
+        self.worker_capture_frame = p_worker_capture_frame                                      # CaptureFrameWorker
+        self.worker_video_encode_packet = p_worker_video_encode_packet                          # EncodeVideoPacketWorker
+        self.worker_video_decode_and_render_packet = p_worker_video_decode_and_render_packet    # DecodeAndRenderVideoPacketWorker
+        self.worker_speaker_decode_packet = p_worker_speaker_decode_packet                      # DecodeSpeakerPacketWorker
+        self.worker_grm_comm = p_worker_grm_comm                                                # GrmCommWorker
+
+        if self.worker_video_encode_packet is not None:
+            self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.request_send_key_frame)
+            self.button_request_keyframe.clicked.connect(self.worker_video_encode_packet.request_recv_key_frame)
+
+    def timeout_key_frame(self):
+        if self.worker_video_encode_packet is not None:
+            self.worker_video_encode_packet.request_send_key_frame()
 
     def camera_device_init(self, max_count):
         pygame.camera.init()
@@ -214,9 +237,14 @@ class MainWindowClass(QMainWindow, form_class):
             if creation_res.code is api.ResponseCode.Success:
                 print("\nCreation success.", creation_res.overlayId)
 
+                self.join_session.creationOverlayId = creation_res.overlayId
+                self.join_session.creationOwnerId = owner_id
+                self.join_session.creationAdminKey = admin_key
+
                 self.join_session.overlayId = creation_res.overlayId
                 self.join_session.ownerId = owner_id
                 self.join_session.adminKey = admin_key
+
                 self.create_button.setText("Channel Delete")
                 self.room_information_button.setDisabled(False)
 
@@ -233,20 +261,22 @@ class MainWindowClass(QMainWindow, form_class):
 
     def join_room(self):
         if self.join_button.text() == "Channel Join":
-            if self.join_session.overlayId is None or len(self.join_session.overlayId) == 0:
+            self.join_ui.clear_value()
+
+            if self.join_session.creationOverlayId is None or len(self.join_session.creationOverlayId) == 0:
                 self.join_ui.button_query.setDisabled(False)
                 self.join_ui.comboBox_overlay_id.setDisabled(False)
             else:
                 self.join_ui.button_query.setDisabled(True)
                 self.join_ui.comboBox_overlay_id.setDisabled(True)
-                self.join_ui.comboBox_overlay_id.addItem(self.join_session.overlayId)
+                self.join_ui.comboBox_overlay_id.addItem(self.join_session.creationOverlayId)
 
-            if len(self.join_session.ownerId) > 0:
-                self.join_ui.lineEdit_peer_id.setText(self.join_session.ownerId)
-                self.join_ui.lineEdit_peer_id.setReadOnly(True)
-            else:
+            if self.join_session.creationOwnerId is None or len(self.join_session.creationOwnerId) == 0:
                 self.join_ui.lineEdit_peer_id.setText('')
                 self.join_ui.lineEdit_peer_id.setReadOnly(False)
+            else:
+                self.join_ui.lineEdit_peer_id.setText(self.join_session.creationOwnerId)
+                self.join_ui.lineEdit_peer_id.setReadOnly(True)
 
             self.join_ui.show()
         elif self.join_button.text() == "Channel Leave":
@@ -294,39 +324,46 @@ class MainWindowClass(QMainWindow, form_class):
                 # self.join_session.description = join_response.description
                 self.set_join(True)
 
+                if self.worker_video_encode_packet is not None:
+                    self.worker_video_encode_packet.request_send_key_frame()
+
             return join_response
         elif self.join_button.text() == "Channel Leave":
             self.leave_room()
 
     def leave_room(self):
-        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId, peerId=self.peer_id,
+        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId,
+                                         peerId=self.peer_id,
                                          accessKey=self.join_session.accessKey))
 
         self.set_join(False)
         self.join_button.setText("Channel Join")
         self.create_button.setDisabled(False)
 
-        for render_view in self.render_views:
-            render_view.close()
-        self.render_views.clear()
-
         if res.code is not api.ResponseCode.Success:
             print("\nLeave fail.", res.code)
+
+        self.join_session.clear_value()
 
     def information_room(self):
         if self.join_session.overlayId is not None:
             self.room_information_ui.lineEdit_overlay_id.setText(self.join_session.overlayId)
         self.room_information_ui.lineEdit_overlay_id.setDisabled(True)
+
         if self.join_session.ownerId is not None:
             self.room_information_ui.lineEdit_ower_id.setText(self.join_session.ownerId)
         self.room_information_ui.lineEdit_ower_id.setDisabled(True)
+
         if self.join_session.accessKey is not None:
             self.room_information_ui.lineEdit_admin_key.setText(self.join_session.accessKey)
         self.room_information_ui.lineEdit_admin_key.setDisabled(True)
+
         if self.join_session.title is not None:
             self.room_information_ui.lineEdit_title.setText(self.join_session.title)
+
         if self.join_session.description is not None:
             self.room_information_ui.lineEdit_description.setText(self.join_session.description)
+
         if self.join_session.adminKey is not None and len(self.join_session.adminKey) > 0:
             self.room_information_ui.button_ok.setDisabled(False)
         else:
@@ -336,6 +373,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.room_information_ui.checkBox_facevideo.setChecked(False)
         self.room_information_ui.checkBox_audio.setChecked(False)
         self.room_information_ui.checkBox_text.setChecked(False)
+
         if self.join_session.channelList is not None:
             for i in self.join_session.channelList:
                 if i.channelType is api.ChannelType.FeatureBasedVideo:
@@ -366,6 +404,7 @@ class MainWindowClass(QMainWindow, form_class):
         face_video_channel = None
         audio_channel = None
         text_channel = None
+
         if self.room_information_ui.checkBox_facevideo.isChecked():
             face_video_channel = internal_create_channel_facevideo(self.mode_type)
             face_video_channel.sourceList = ["*"]
@@ -408,12 +447,12 @@ class MainWindowClass(QMainWindow, form_class):
     def send_chat(self):
         print('send chat')
         input_message = self.lineEdit_input_chat.text()
-        self.output_chat(input_message)
+        self.output_chat(self.peer_id, input_message)
         self.lineEdit_input_chat.clear()
 
         chat_message = self.bin_wrapper.to_bin_chat_data(input_message)
-        chat_message = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.current_milli_time(),
-                                                                  seqnum=self.get_worker_seqnum(),
+        chat_message = self.bin_wrapper.to_bin_wrap_common_header(timestamp=get_current_time_ms(),
+                                                                  seq_num=self.get_worker_seq_num(),
                                                                   ssrc=self.get_worker_ssrc(),
                                                                   mediatype=TYPE_INDEX.TYPE_DATA,
                                                                   bindata=chat_message)
@@ -427,25 +466,30 @@ class MainWindowClass(QMainWindow, form_class):
         self.worker_mic_encode_packet.resume_process()
 
     def change_audio_device(self):
-        print('main change speaker device start')
-        self.worker_speaker_decode_packet.pause_process()
-        time.sleep(2)
-        self.worker_speaker_decode_packet.change_device(self.comboBox_audio_device.currentData())
-        self.worker_speaker_decode_packet.resume_process()
-        print('main change speaker device end')
+        if self.worker_speaker_decode_packet is not None:
+            print('main change speaker device start')
+            self.worker_speaker_decode_packet.pause_process()
+            time.sleep(2)
+            self.worker_speaker_decode_packet.change_device(self.comboBox_audio_device.currentData())
+            self.worker_speaker_decode_packet.resume_process()
+            print('main change speaker device end')
 
     def change_camera_device(self):
-        print('camera index change start')
-        self.worker_capture_frame.pause_process()
-        time.sleep(1)
-        self.worker_capture_frame.change_device(self.comboBox_video_device.currentData())
-        self.worker_capture_frame.resume_process()
-        print('camera index change end')
+        print(f'camera index change. {self.comboBox_video_device.currentData()}')
+        if self.worker_capture_frame is not None:
+            self.worker_capture_frame.pause_process()
+            time.sleep(1)
+            self.worker_capture_frame.change_device(self.comboBox_video_device.currentData())
+            self.worker_capture_frame.resume_process()
 
     def exit_button(self):
         threads: List[GrmParentThread] = [
-            self.worker_video_decode_and_render_packet, self.worker_video_encode_packet,
-            self.worker_capture_frame, self.worker_preview, self.worker_mic_encode_packet, self.worker_speaker_decode_packet,
+            self.worker_video_encode_packet,
+            self.worker_video_decode_and_render_packet,
+            self.worker_capture_frame,
+            self.worker_preview,
+            self.worker_mic_encode_packet,
+            self.worker_speaker_decode_packet,
             self.worker_grm_comm
         ]
 
@@ -465,17 +509,66 @@ class MainWindowClass(QMainWindow, form_class):
 
         self.close()
 
+    def change_use_replace_image(self):
+        if self.checkBox_use_replace_image.isChecked() is True:
+            self.lineEdit_search_replace_image.setDisabled(False)
+            self.button_search_replace_image.setDisabled(False)
+            self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
+        else:
+            self.lineEdit_search_replace_image.setDisabled(True)
+            self.button_search_replace_image.setDisabled(True)
+            self.worker_video_encode_packet.set_replace_image_frame(None)
+
+    def search_replace_image(self):
+        replace_image = QFileDialog.getOpenFileName(self, filter='*.jpg')
+        self.lineEdit_search_replace_image.setText(replace_image[0])
+
+        with open(replace_image[0], "rb") as f:
+            bytes_read = f.read()
+
+            frame = np.frombuffer(bytes_read, dtype=np.uint8)
+            frame = cv2.imdecode(frame, flags=1)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            img = frame
+            w, h = frame.shape[:2]
+            if w != IMAGE_SIZE or h != IMAGE_SIZE:
+                x = 0
+                y = 0
+                if w > h:
+                    x = int((w - h) / 2)
+                    w = h
+                elif h > w:
+                    y = int((h - w) / 2)
+                    h = w
+
+                cropped_img = frame[x: x + w, y: y + h]
+                img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+
+            self.replace_image_frame = img
+
+            if self.checkBox_use_replace_image.isChecked() is True and self.worker_video_encode_packet is not None:
+                self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
+
+            h, w, c = self.replace_image_frame.shape
+            q_img = QtGui.QImage(self.replace_image_frame.data, w, h, w * c, QtGui.QImage.Format_RGB888)
+            pixmap = QtGui.QPixmap.fromImage(q_img)
+            pixmap_resized = pixmap.scaledToWidth(self.replace_image_view.width())
+            if pixmap_resized is not None:
+                self.replace_image_view.setPixmap(pixmap)
+
     def remove_room(self):
-        print(f"overlayId:{self.join_session.overlayId}, ownerId:{self.join_session.ownerId}, "
-              f"adminKey:{self.join_session.adminKey}")
-        res = api.Removal(api.RemovalRequest(self.join_session.overlayId, self.join_session.ownerId,
-                                             self.join_session.adminKey))
+        print(f"overlayId:{self.join_session.creationOverlayId}, ownerId:{self.join_session.creationOwnerId}, "
+              f"adminKey:{self.join_session.creationAdminKey}")
+        if self.join_session.creationOverlayId is not None and self.join_session.creationOwnerId is not None and self.join_session.creationAdminKey is not None:
+            res = api.Removal(api.RemovalRequest(self.join_session.creationOverlayId, self.join_session.creationOwnerId,
+                                                 self.join_session.creationAdminKey))
+            if res.code is not api.ResponseCode.Success:
+                print(f"\nRemoval fail.[{res.code}]")
+
         self.create_button.setText("Channel Create")
         print("\nRemoval success.")
         self.join_session = SessionData()
-
-        if res.code is not api.ResponseCode.Success:
-            print(f"\nRemoval fail.[{res.code}]")
 
     def get_my_display_name(self):
         for i in self.join_peer:
@@ -483,9 +576,17 @@ class MainWindowClass(QMainWindow, form_class):
                 return i.display_name
         return "Invalid user"
 
-    def output_chat(self, message):
-        print('output chat')
-        chat_message = '[' + self.get_my_display_name() + '] : ' + message
+    def output_chat(self, peer_id, message):
+        display_name = self.get_my_display_name()
+
+        if peer_id is not None:
+            for i in self.join_peer:
+                if i.peer_id == peer_id:
+                    display_name = i.display_name
+                    break
+
+        print(f'output chat. display_name:{display_name} message:{message}')
+        chat_message = '[' + display_name + '] : ' + message
         self.listWidget_chat_message.addItem(chat_message)
 
     def search_user(self):
@@ -500,33 +601,20 @@ class MainWindowClass(QMainWindow, form_class):
                 update_peer: PeerData = PeerData(peer_id=i.peerId, display_name=i.displayName)
                 self.update_user(update_peer, False)
 
-    @pyqtSlot(str)
-    def add_peer_view(self, peer_id):
-        if self.render_views.get(peer_id) is None:
-            render_view = RenderViewClass()
-            render_view.setWindowTitle(peer_id)
-            render_view.show()
-            self.render_views[peer_id] = render_view
-
-    @pyqtSlot(str)
-    def remove_peer_view(self, peer_id):
-        if self.render_views.get(peer_id) is not None:
-            render_view = self.render_views[peer_id]
-            render_view.close()
-            del self.render_views[peer_id]
-
     def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):
+        if self.worker_video_decode_and_render_packet is not None:
+            self.worker_video_decode_and_render_packet.update_user(p_peer_data, p_leave_flag)
+
+        if self.worker_speaker_decode_packet is not None:
+            self.worker_speaker_decode_packet.update_user(p_peer_data, p_leave_flag)
+
         if p_leave_flag is True:
-            if self.render_views.get(p_peer_data.peer_id) is not None:
-                self.remove_peer_view_signal.emit(p_peer_data.peer_id)
-                time.sleep(1)
-
-            self.join_peer.remove(p_peer_data)
+            if self.join_peer is not None:
+                for i in self.join_peer:
+                    if p_peer_data.peer_id == i.peer_id:
+                        self.join_peer.remove(p_peer_data)
+                        break
         else:
-            if self.render_views.get(p_peer_data.peer_id) is None:
-                self.add_peer_view_signal.emit(p_peer_data.peer_id)
-                time.sleep(1)
-
             add_user = True
             if self.join_peer is not None:
                 for i in self.join_peer:
@@ -537,6 +625,9 @@ class MainWindowClass(QMainWindow, form_class):
             if add_user is True:
                 self.join_peer.append(p_peer_data)
 
+                if self.worker_video_encode_packet is not None:
+                    self.worker_video_encode_packet.request_send_key_frame()
+
     def session_notification_listener(self, change: api.Notification):
         # print(f"session_notification_listener notification.{change}")
 
@@ -544,9 +635,12 @@ class MainWindowClass(QMainWindow, form_class):
             session_change: api.SessionChangeNotification = change
             print("SessionChangeNotification received.", session_change)
             print(f"Change session is {session_change.overlayId}")
-            self.join_session = SessionData(overlayId=session_change.overlayId, title=session_change.title,
-                                            description=session_change.title, ownerId=session_change.ownerId,
-                                            accessKey=session_change.accessKey, sourceList=session_change.sourceList,
+            self.join_session = SessionData(overlayId=session_change.overlayId,
+                                            title=session_change.title,
+                                            description=session_change.title,
+                                            ownerId=session_change.ownerId,
+                                            accessKey=session_change.accessKey,
+                                            sourceList=session_change.sourceList,
                                             channelList=session_change.channelList)
         elif change.notificationType is api.NotificationType.SessionTerminationNotification:
             session_termination: api.SessionTerminationNotification = change
@@ -570,16 +664,18 @@ class MainWindowClass(QMainWindow, form_class):
                 _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
                 if _mediatype == TYPE_INDEX.TYPE_VIDEO:
                     media_queue_data = MediaQueueData(data.peerId, _bindata)
-                    self.worker_grm_comm.recv_video_queue.put(media_queue_data)
+                    if self.worker_grm_comm is not None:
+                        self.worker_grm_comm.recv_video_queue.put(media_queue_data)
                 elif _mediatype == TYPE_INDEX.TYPE_AUDIO:
                     media_queue_data = MediaQueueData(data.peerId, _bindata)
-                    self.worker_grm_comm.recv_audio_queue.put(media_queue_data)
+                    if self.worker_grm_comm is not None:
+                        self.worker_grm_comm.recv_audio_queue.put(media_queue_data)
                 elif _mediatype == TYPE_INDEX.TYPE_DATA:
                     _type, _value, _ = self.bin_wrapper.parse_bin(_bindata)
                     if _type == TYPE_INDEX.TYPE_DATA_CHAT:
                         chat_message = self.bin_wrapper.parse_chat(_value)
-                        print(f"chat_message : {chat_message}")
-                        self.output_chat(chat_message)
+                        print(f"chat_message. peer_id:{data.peerId} message:{chat_message}")
+                        self.output_chat(data.peerId, chat_message)
 
     def update_user_list(self):
         self.listWidget.clear()

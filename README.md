@@ -17,33 +17,24 @@ Future progress
 Build Configuration
   * Environment variable
     - PYTHONUNBUFFERED=1;PYTHONPATH=%PYTHONPATH%\\\;\;[Working Directory]\\;[Working Directory]\fomm;[Working Directory]\SPIGA
-
-Execute parameter
-  * Server  
-    --config fomm/config/vox-adv-256.yaml --relative --adapt_scale --no-pad --checkpoint vox-adv-cpk.pth.tar --is-server --listen-port [LISTEN_PORT] --keyframe-period 11000
-    
-  * Client  
-    --config fomm/config/vox-adv-256.yaml --relative --adapt_scale --no-pad --checkpoint vox-adv-cpk.pth.tar --server-ip [SERVER_IP] --server-port [SERVER_PORT] --keyframe-period 11000
-
-* Due to github capacity issues, the "vox-adv-cpk.pth.tar" file must be downloaded separately.
+  * Due to github capacity issues, the "vox-adv-cpk.pth.tar" file must be downloaded separately.
 
 -- Goorooroomee App Test Procedure ---
 Precondition
 1) torch.cuda.is_available() is True
-2) Activate cuda on both Server/Client
-3) Server and client must be composed of separate computers connected by a network.
 
-1. Run GooroomeeApp as a server
+1. Run FVApp as a channel creator
     parameter
-	--config fomm/config/vox-adv-256.yaml --relative --adapt_scale --no-pad --checkpoint vox-adv-cpk.pth.tar --is-server --listen-port [LISTEN_PORT] --keyframe-period 11000
+	python main.py
+
 	1) Create Channel
 	2) Channel Join
 
-2) Run GooroomeeApp as a client
+2) Run FVApp as a channel participant
    parameter
-	--config fomm/config/vox-adv-256.yaml --relative --adapt_scale --no-pad --checkpoint vox-adv-cpk.pth.tar --server-ip [SERVER_IP] --server-port [SERVER_PORT] --keyframe-period 11000
-	1) Channel Create (In future actual use, channel create will be used after executing once - JayB api applied)
-	2) Channel Join
+	python main.py
 
-3) keyframe send (period conf is --keyframe-period 11000 (ms)
-4) After receiving the keyframe and receiving the feature points, the video is displayed
+	1) Channel Join
+
+3) keyframe send (The default keyframe period is 2000ms, and you can set the duration through the --keyframe-period (ms) option.)
+4) After receiving the keyframe and receiving the feature points, the video will be displayed

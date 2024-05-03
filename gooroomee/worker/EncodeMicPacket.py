@@ -7,11 +7,14 @@ from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_queue import GRMQueue
 
 
+def get_current_time_ms():
+    return round(time.time() * 1000)
+
+
 class EncodeMicPacketWorker(GrmParentThread):
     def __init__(self,
                  p_send_grm_queue,
-                 p_current_milli_time,
-                 p_get_worker_seqnum,
+                 p_get_worker_seq_num,
                  p_get_worker_ssrc):
         super().__init__()
         self.mic_stream = None
@@ -19,8 +22,7 @@ class EncodeMicPacketWorker(GrmParentThread):
         self.work_done = 0
         self.receive_data = 0
         self.send_grm_queue: GRMQueue = p_send_grm_queue
-        self.current_milli_time = p_current_milli_time
-        self.get_worker_seqnum = p_get_worker_seqnum
+        self.get_worker_seq_num = p_get_worker_seq_num
         self.get_worker_ssrc = p_get_worker_ssrc
         self.mic_interface = 0
         self.connect_flag: bool = False
@@ -54,8 +56,8 @@ class EncodeMicPacketWorker(GrmParentThread):
                         continue
 
                     audio_bin_data = self.bin_wrapper.to_bin_audio_data(_frames)
-                    audio_bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.current_milli_time(),
-                                                                                seqnum=self.get_worker_seqnum(),
+                    audio_bin_data = self.bin_wrapper.to_bin_wrap_common_header(timestamp=get_current_time_ms(),
+                                                                                seq_num=self.get_worker_seq_num(),
                                                                                 ssrc=self.get_worker_ssrc(),
                                                                                 mediatype=TYPE_INDEX.TYPE_AUDIO,
                                                                                 bindata=audio_bin_data)

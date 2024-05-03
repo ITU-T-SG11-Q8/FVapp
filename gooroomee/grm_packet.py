@@ -131,29 +131,31 @@ class BINWrapper:
     def to_bin_key_frame(self, frame):
         _type = TYPE_INDEX.TYPE_VIDEO_KEY_FRAME
         to_bin = self.to_tlv(_type, frame)
+        return to_bin       #.tobytes()
 
+    def to_bin_request_key_frame(self):
+        _type = TYPE_INDEX.TYPE_VIDEO_KEY_FRAME_REQUEST
+        to_bin = self.to_tlv(_type, b'')
         return to_bin       #.tobytes()
 
     def to_bin_audio_data(self, frame):
         _type = TYPE_INDEX.TYPE_AUDIO_ZIP
         to_bin = self.to_tlv(_type, frame)
-
         return to_bin       #.tobytes()
 
     def to_bin_chat_data(self, chat_data):
         chat_data = bytes(chat_data, 'utf-8')
         _type = TYPE_INDEX.TYPE_DATA_CHAT
         to_bin = self.to_tlv(_type, chat_data)
-
         return to_bin       #.tobytes()
 
-    def to_bin_wrap_common_header(self, timestamp: np.uint64, seqnum: np.uint32, ssrc: np.uint32, mediatype: np.uint16, bindata, version: np.uint16 = 1):
+    def to_bin_wrap_common_header(self, timestamp: np.uint64, seq_num: np.uint32, ssrc: np.uint32, mediatype: np.uint16, bindata, version: np.uint16 = 1):
         '''
         if bindata is None:
             bindata = b''
         bin_version = struct.pack('<H', version)            # H : unsigned short
         bin_timestamp = struct.pack('<Q', timestamp)        # Q : unsigned long long
-        bin_seqnum = struct.pack('<L', seqnum)              # L : unsigned long
+        bin_seq_num = struct.pack('<L', seq_num)            # L : unsigned long
         bin_ssrc = struct.pack('<L', ssrc)                  # L : unsigned long
         bin_mediatype = struct.pack('<H', mediatype)        # H : unsigned short
         bin_bindata_len = struct.pack('<L', len(bindata))   # L : unsigned long
@@ -165,8 +167,8 @@ class BINWrapper:
         bin_timestamp = np.array([timestamp], dtype=np.uint64)
         bin_timestamp = np.frombuffer(bin_timestamp.tobytes(), dtype=np.uint8)
 
-        bin_seqnum = np.array([seqnum], dtype=np.uint32)
-        bin_seqnum = np.frombuffer(bin_seqnum.tobytes(), dtype=np.uint8)
+        bin_seq_num = np.array([seq_num], dtype=np.uint32)
+        bin_seq_num = np.frombuffer(bin_seq_num.tobytes(), dtype=np.uint8)
 
         bin_ssrc = np.array([ssrc], dtype=np.uint32)
         bin_ssrc = np.frombuffer(bin_ssrc.tobytes(), dtype=np.uint8)
@@ -179,7 +181,13 @@ class BINWrapper:
         bin_bindata_len = np.array([len(bindata)], dtype=np.uint16)
         bin_bindata_len = np.frombuffer(bin_bindata_len.tobytes(), dtype=np.uint8)
 
-        bin_data = np.concatenate([bin_version, bin_timestamp, bin_seqnum, bin_ssrc, bin_mediatype, bin_bindata_len, bindata])
+        bin_data = np.concatenate([bin_version,
+                                   bin_timestamp,
+                                   bin_seq_num,
+                                   bin_ssrc,
+                                   bin_mediatype,
+                                   bin_bindata_len,
+                                   bindata])
         return bin_data.tobytes()
 
     def parse_bin(self, bin_data):
@@ -262,9 +270,9 @@ class BINWrapper:
         _timestamp = self.array_to_int(_timestamp[::-1])
         _read_pos += 8
 
-        _seqnum = bin_data[_read_pos:_read_pos + 4]
-        #_seqnum = np.frombuffer(_seqnum, dtype=np.uint32)[0]
-        _seqnum = self.array_to_int(_seqnum[::-1])
+        _seq_num = bin_data[_read_pos:_read_pos + 4]
+        #_seq_num = np.frombuffer(_seq_num, dtype=np.uint32)[0]
+        _seq_num = self.array_to_int(_seq_num[::-1])
         _read_pos += 4
 
         _ssrc = bin_data[_read_pos:_read_pos + 4]
@@ -285,5 +293,5 @@ class BINWrapper:
         _bindata = bin_data[_read_pos:_read_pos + _bindata_len]
         _read_pos += _bindata_len
 
-        return _version, _timestamp, _seqnum, _ssrc, _mediatype, _bindata_len, _bindata
+        return _version, _timestamp, _seq_num, _ssrc, _mediatype, _bindata_len, _bindata
 

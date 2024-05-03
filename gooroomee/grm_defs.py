@@ -24,6 +24,10 @@ class ModeType:
 
 # @dataclass
 class SessionData:
+    creationOverlayId: str = None
+    creationOwnerId: str = None
+    creationAdminKey: str = None
+
     adminKey: str = None
     overlayId: str = None
     title: str = None
@@ -37,6 +41,9 @@ class SessionData:
     channelList: List[Channel] = None
 
     def __init__(self):
+        self.clear_value()
+
+    def clear_value(self):
         self.adminKey = ''
         self.overlayId = ''
         self.title = ''
@@ -50,29 +57,33 @@ class SessionData:
         # self.channelList: List[Channel] = []
 
     def audio_channel_id(self):
-        for i in range(len(self.channelList)):
-            if self.channelList[i].channelType is ChannelType.Audio:
-                return self.channelList[i].channelId
+        if self.channelList is not None:
+            for i in range(len(self.channelList)):
+                if self.channelList[i].channelType is ChannelType.Audio:
+                    return self.channelList[i].channelId
         return None
 
     def video_channel_id(self):
-        for i in range(len(self.channelList)):
-            if self.channelList[i].channelType is ChannelType.FeatureBasedVideo:
-                return self.channelList[i].channelId
+        if self.channelList is not None:
+            for i in range(len(self.channelList)):
+                if self.channelList[i].channelType is ChannelType.FeatureBasedVideo:
+                    return self.channelList[i].channelId
         return None
 
     def video_channel_type(self):
-        for i in range(len(self.channelList)):
-            if self.channelList[i].channelType is ChannelType.FeatureBasedVideo:
-                if self.channelList[i].mode == api.FeatureBasedVideoMode.KeypointsDescriptionMode:
-                    return ModeType.KDM
-                break
+        if self.channelList is not None:
+            for i in range(len(self.channelList)):
+                if self.channelList[i].channelType is ChannelType.FeatureBasedVideo:
+                    if self.channelList[i].mode == api.FeatureBasedVideoMode.KeypointsDescriptionMode:
+                        return ModeType.KDM
+                    break
         return ModeType.SNNM
 
     def text_channel_id(self):
-        for i in range(len(self.channelList)):
-            if self.channelList[i].channelType is ChannelType.Text:
-                return self.channelList[i].channelId
+        if self.channelList is not None:
+            for i in range(len(self.channelList)):
+                if self.channelList[i].channelType is ChannelType.Text:
+                    return self.channelList[i].channelId
         return None
 
 
@@ -125,5 +136,3 @@ class GrmParentThread(QThread):
     def set_join(self, p_join_flag: bool):
         # print(f'set_join join_flag = [{p_join_flag}]')
         self.join_flag = p_join_flag
-
-

@@ -19,11 +19,11 @@ log = Tee('./var/log/cam_fomm.log')
 # Where to split an array from face_alignment to separate each landmark
 LANDMARK_SLICE_ARRAY = np.array([17, 22, 27, 31, 36, 42, 48, 60])
 
-if _platform == 'darwin':
-    if not opt.is_client:
-        info('\nOnly remote GPU mode is supported for Mac (use --is-client and --connect options to connect to the server)')
-        info('Standalone version will be available lately!\n')
-        exit()
+# if _platform == 'darwin':
+#     if not opt.is_client:
+#         info('\nOnly remote GPU mode is supported for Mac (use --is-client and --connect options to connect to the server)')
+#         info('Standalone version will be available lately!\n')
+#         exit()
 
 
 def is_new_frame_better(source, driving, predictor):
@@ -323,6 +323,8 @@ if __name__ == "__main__":
             tt.tic()
             
             key = cv2.waitKey(1)
+            if key != -1:
+                print(f'### {key}')
 
             if cv2.getWindowProperty('cam', cv2.WND_PROP_VISIBLE) < 1.0:
                 break

@@ -107,11 +107,16 @@ class GRMPredictor:
                 self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
-            kp_norm = normalize_kp(kp_source=self.kp_source, kp_driving=kp_driving,
-                                   kp_driving_initial=self.kp_driving_initial, use_relative_movement=self.relative,
-                                   use_relative_jacobian=self.relative, adapt_movement_scale=self.adapt_movement_scale)
+            kp_norm = normalize_kp(kp_source=self.kp_source,
+                                   kp_driving=kp_driving,
+                                   kp_driving_initial=self.kp_driving_initial,
+                                   use_relative_movement=self.relative,
+                                   use_relative_jacobian=self.relative,
+                                   adapt_movement_scale=self.adapt_movement_scale)
 
-            out = self.generator(self.source, kp_source=self.kp_source, kp_driving=kp_norm)
+            out = self.generator(self.source,
+                                 kp_source=self.kp_source,
+                                 kp_driving=kp_norm)
 
             out = np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0]
             out = (np.clip(out, 0, 1) * 255).astype(np.uint8)
@@ -130,9 +135,12 @@ class GRMPredictor:
                 self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
-            kp_norm = normalize_kp(kp_source=self.kp_source, kp_driving=kp_driving,
-                                   kp_driving_initial=self.kp_driving_initial, use_relative_movement=self.relative,
-                                   use_relative_jacobian=self.relative, adapt_movement_scale=self.adapt_movement_scale)
+            kp_norm = normalize_kp(kp_source=self.kp_source,
+                                   kp_driving=kp_driving,
+                                   kp_driving_initial=self.kp_driving_initial,
+                                   use_relative_movement=self.relative,
+                                   use_relative_jacobian=self.relative,
+                                   adapt_movement_scale=self.adapt_movement_scale)
 
             return kp_norm
 
@@ -140,7 +148,9 @@ class GRMPredictor:
         assert self.kp_source is not None, "call set_source_image()"
 
         with torch.no_grad():
-            out = self.generator(self.source, kp_source=self.kp_source, kp_driving=kp_norm)
+            out = self.generator(self.source,
+                                 kp_source=self.kp_source,
+                                 kp_driving=kp_norm)
 
             out = np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0]
             out = (np.clip(out, 0, 1) * 255).astype(np.uint8)
