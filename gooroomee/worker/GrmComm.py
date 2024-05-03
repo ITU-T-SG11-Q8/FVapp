@@ -61,7 +61,7 @@ class GrmCommWorker(GrmParentThread):
         if self.join_flag is False:
             return
 
-        _version, _timestamp, _seqnum, _ssrc, _mediatype, _bindata_len, _bindata = self.bin_wrapper.parse_wrap_common_header(
+        _version, _timestamp, _seq_num, _ssrc, _mediatype, _bindata_len, _bindata = self.bin_wrapper.parse_wrap_common_header(
             bin_data)
         if _mediatype == TYPE_INDEX.TYPE_VIDEO:
             media_queue_data = MediaQueueData("", _bindata)
@@ -104,8 +104,8 @@ class GrmCommWorker(GrmParentThread):
 
                 # print(f'GrmCommWorker queue size:{self.video_packet_queue.length()}')
                 if self.send_video_queue.length() > 0:
-                    # print(f'GrmCommWorker pop queue size:{self.send_video_queue.length()}')
                     video_bin_data = self.send_video_queue.pop()
+
                     if video_bin_data is not None:
                         video_channel_id = self.main_window.join_session.video_channel_id()
                         if video_channel_id is not None:

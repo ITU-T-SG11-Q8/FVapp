@@ -70,13 +70,16 @@ def internal_create_channel_facevideo(mode_type):
     return face_video_channel
 
 
+def get_current_time_ms():
+    return round(time.time() * 1000)
+
+
 class MainWindowClass(QMainWindow, form_class):
     mode_type: ModeType = ModeType.SNNM
     replace_image_frame = None
 
     def __init__(self,
-                 p_get_current_milli_time,
-                 p_get_worker_seqnum,
+                 p_get_worker_seq_num,
                  p_get_worker_ssrc,
                  p_set_join):
         super().__init__()
@@ -89,7 +92,7 @@ class MainWindowClass(QMainWindow, form_class):
 
         self.keyframe_period = opt.keyframe_period
         if self.keyframe_period is None:
-            self.keyframe_period = 20000
+            self.keyframe_period = 0
 
         print(f'key frame period:{self.keyframe_period}')
 
@@ -100,8 +103,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.worker_speaker_decode_packet = None            # DecodeSpeakerPacketWorker
         self.worker_grm_comm = None                         # GrmCommWorker
 
-        self.get_current_milli_time = p_get_current_milli_time
-        self.get_worker_seqnum = p_get_worker_seqnum
+        self.get_worker_seq_num = p_get_worker_seq_num
         self.get_worker_ssrc = p_get_worker_ssrc
         self.set_join = p_set_join
 
@@ -121,8 +123,10 @@ class MainWindowClass(QMainWindow, form_class):
         self.lineEdit_input_chat.setDisabled(True)
         self.peer_id = ""
         self.timer = QTimer(self)
-        self.timer.start(self.keyframe_period)
-        self.timer.timeout.connect(self.timeout)
+
+        if self.keyframe_period > 0:
+            self.timer.start(self.keyframe_period)
+            self.timer.timeout.connect(self.timeout_key_frame)
 
         self.bin_wrapper = BINWrapper()
 
@@ -146,8 +150,9 @@ class MainWindowClass(QMainWindow, form_class):
 
         if self.worker_video_encode_packet is not None:
             self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.request_send_key_frame)
+            self.button_request_keyframe.clicked.connect(self.worker_video_encode_packet.request_recv_key_frame)
 
-    def timeout(self):
+    def timeout_key_frame(self):
         if self.worker_video_encode_packet is not None:
             self.worker_video_encode_packet.request_send_key_frame()
 
@@ -232,9 +237,14 @@ class MainWindowClass(QMainWindow, form_class):
             if creation_res.code is api.ResponseCode.Success:
                 print("\nCreation success.", creation_res.overlayId)
 
+                self.join_session.creationOverlayId = creation_res.overlayId
+                self.join_session.creationOwnerId = owner_id
+                self.join_session.creationAdminKey = admin_key
+
                 self.join_session.overlayId = creation_res.overlayId
                 self.join_session.ownerId = owner_id
                 self.join_session.adminKey = admin_key
+
                 self.create_button.setText("Channel Delete")
                 self.room_information_button.setDisabled(False)
 
@@ -253,20 +263,20 @@ class MainWindowClass(QMainWindow, form_class):
         if self.join_button.text() == "Channel Join":
             self.join_ui.clear_value()
 
-            if self.join_session.overlayId is None or len(self.join_session.overlayId) == 0:
+            if self.join_session.creationOverlayId is None or len(self.join_session.creationOverlayId) == 0:
                 self.join_ui.button_query.setDisabled(False)
                 self.join_ui.comboBox_overlay_id.setDisabled(False)
             else:
                 self.join_ui.button_query.setDisabled(True)
                 self.join_ui.comboBox_overlay_id.setDisabled(True)
-                self.join_ui.comboBox_overlay_id.addItem(self.join_session.overlayId)
+                self.join_ui.comboBox_overlay_id.addItem(self.join_session.creationOverlayId)
 
-            if len(self.join_session.ownerId) > 0:
-                self.join_ui.lineEdit_peer_id.setText(self.join_session.ownerId)
-                self.join_ui.lineEdit_peer_id.setReadOnly(True)
-            else:
+            if self.join_session.creationOwnerId is None or len(self.join_session.creationOwnerId) == 0:
                 self.join_ui.lineEdit_peer_id.setText('')
                 self.join_ui.lineEdit_peer_id.setReadOnly(False)
+            else:
+                self.join_ui.lineEdit_peer_id.setText(self.join_session.creationOwnerId)
+                self.join_ui.lineEdit_peer_id.setReadOnly(True)
 
             self.join_ui.show()
         elif self.join_button.text() == "Channel Leave":
@@ -437,12 +447,12 @@ class MainWindowClass(QMainWindow, form_class):
     def send_chat(self):
         print('send chat')
         input_message = self.lineEdit_input_chat.text()
-        self.output_chat(input_message)
+        self.output_chat(self.peer_id, input_message)
         self.lineEdit_input_chat.clear()
 
         chat_message = self.bin_wrapper.to_bin_chat_data(input_message)
-        chat_message = self.bin_wrapper.to_bin_wrap_common_header(timestamp=self.get_current_milli_time(),
-                                                                  seqnum=self.get_worker_seqnum(),
+        chat_message = self.bin_wrapper.to_bin_wrap_common_header(timestamp=get_current_time_ms(),
+                                                                  seq_num=self.get_worker_seq_num(),
                                                                   ssrc=self.get_worker_ssrc(),
                                                                   mediatype=TYPE_INDEX.TYPE_DATA,
                                                                   bindata=chat_message)
@@ -548,16 +558,17 @@ class MainWindowClass(QMainWindow, form_class):
                 self.replace_image_view.setPixmap(pixmap)
 
     def remove_room(self):
-        print(f"overlayId:{self.join_session.overlayId}, ownerId:{self.join_session.ownerId}, "
-              f"adminKey:{self.join_session.adminKey}")
-        res = api.Removal(api.RemovalRequest(self.join_session.overlayId, self.join_session.ownerId,
-                                             self.join_session.adminKey))
+        print(f"overlayId:{self.join_session.creationOverlayId}, ownerId:{self.join_session.creationOwnerId}, "
+              f"adminKey:{self.join_session.creationAdminKey}")
+        if self.join_session.creationOverlayId is not None and self.join_session.creationOwnerId is not None and self.join_session.creationAdminKey is not None:
+            res = api.Removal(api.RemovalRequest(self.join_session.creationOverlayId, self.join_session.creationOwnerId,
+                                                 self.join_session.creationAdminKey))
+            if res.code is not api.ResponseCode.Success:
+                print(f"\nRemoval fail.[{res.code}]")
+
         self.create_button.setText("Channel Create")
         print("\nRemoval success.")
         self.join_session = SessionData()
-
-        if res.code is not api.ResponseCode.Success:
-            print(f"\nRemoval fail.[{res.code}]")
 
     def get_my_display_name(self):
         for i in self.join_peer:
@@ -565,9 +576,17 @@ class MainWindowClass(QMainWindow, form_class):
                 return i.display_name
         return "Invalid user"
 
-    def output_chat(self, message):
-        print('output chat')
-        chat_message = '[' + self.get_my_display_name() + '] : ' + message
+    def output_chat(self, peer_id, message):
+        display_name = self.get_my_display_name()
+
+        if peer_id is not None:
+            for i in self.join_peer:
+                if i.peer_id == peer_id:
+                    display_name = i.display_name
+                    break
+
+        print(f'output chat. display_name:{display_name} message:{message}')
+        chat_message = '[' + display_name + '] : ' + message
         self.listWidget_chat_message.addItem(chat_message)
 
     def search_user(self):
@@ -655,8 +674,8 @@ class MainWindowClass(QMainWindow, form_class):
                     _type, _value, _ = self.bin_wrapper.parse_bin(_bindata)
                     if _type == TYPE_INDEX.TYPE_DATA_CHAT:
                         chat_message = self.bin_wrapper.parse_chat(_value)
-                        print(f"chat_message : {chat_message}")
-                        self.output_chat(chat_message)
+                        print(f"chat_message. peer_id:{data.peerId} message:{chat_message}")
+                        self.output_chat(data.peerId, chat_message)
 
     def update_user_list(self):
         self.listWidget.clear()

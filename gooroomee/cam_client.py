@@ -259,16 +259,13 @@ def start_client():
     client = BINComm()
     client.start_client(predictor.server_ip, predictor.server_port, on_client_connected, on_client_closed, on_client_data)
 
-    def get_current_milli_time():
-        return round(time.time() * 1000)
-
     while True:
         _bin_data = grm_queue.pop()
         if _bin_data is not None:
             while len(_bin_data) > 0:
                 _type, _value, _bin_data = grm_packet.parse_bin(_bin_data)
                 if _type == 1100:   # key_frame
-                    print(f'key_frame received. {len(_value)}')
+                    print(f'received key_frame. {len(_value)}')
                     key_frame = grm_packet.parse_key_frame(_value)
                     # cv2.imshow('key_frame', key_frame)
 

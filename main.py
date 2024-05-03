@@ -46,18 +46,14 @@ worker_grm_comm: GrmCommWorker = None
 worker_video_decode_and_render_packet: DecodeAndRenderVideoPacketWorker = None
 worker_speaker_decode_packet: DecodeSpeakerPacketWorker = None
 
-worker_seqnum: int = 0
+worker_seq_num: int = 0
 worker_ssrc: int = 0
 
 
-def get_current_milli_time():
-    return round(time.time() * 1000)
-
-
-def get_worker_seqnum():
-    global worker_seqnum
-    ret = worker_seqnum
-    worker_seqnum += 1
+def get_worker_seq_num():
+    global worker_seq_num
+    ret = worker_seq_num
+    worker_seq_num += 1
     return ret
 
 
@@ -80,10 +76,20 @@ def all_start_worker():
     global worker_speaker_decode_packet
     global worker_grm_comm
 
+    if worker_video_encode_packet is not None:
+        worker_video_encode_packet.start_process()
+    else:
+        worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,
+                                                             send_video_queue,
+                                                             get_worker_seq_num,
+                                                             get_worker_ssrc,
+                                                             get_grm_mode_type)
+
     if worker_capture_frame is not None:
         worker_capture_frame.start_process()
     else:
         worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),
+                                                  worker_video_encode_packet,
                                                   video_capture_queue,
                                                   preview_video_queue)
 
@@ -94,22 +100,11 @@ def all_start_worker():
                                        preview_video_queue,
                                        main_window.preview)
 
-    if worker_video_encode_packet is not None:
-        worker_video_encode_packet.start_process()
-    else:
-        worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,
-                                                             send_video_queue,
-                                                             get_current_milli_time,
-                                                             get_worker_seqnum,
-                                                             get_worker_ssrc,
-                                                             get_grm_mode_type)
-
     if worker_mic_encode_packet is not None:
         worker_mic_encode_packet.start_process()
     else:
         worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-                                                         get_current_milli_time,
-                                                         get_worker_seqnum,
+                                                         get_worker_seq_num,
                                                          get_worker_ssrc)
 
     if worker_grm_comm is not None:
@@ -170,7 +165,7 @@ def set_join(join_flag: bool):
     global worker_mic_encode_packet
     global worker_speaker_decode_packet
     global worker_grm_comm
-    global worker_seqnum
+    global worker_seq_num
     global worker_ssrc
 
     if join_flag is True:
@@ -183,7 +178,7 @@ def set_join(join_flag: bool):
 
     print(f'set_join join_flag:{join_flag}')
 
-    worker_seqnum = 0
+    worker_seq_num = 0
     worker_ssrc = random.random()
 
     if worker_capture_frame is not None:
@@ -218,9 +213,6 @@ if _platform == 'darwin':
         exit()
 
 if __name__ == '__main__':
-    # import os
-    # os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-
     api.StartGrpcServer()
     api.SetLogLevel('INFO')
 
@@ -228,32 +220,27 @@ if __name__ == '__main__':
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
 
-    # lock_mic_audio_queue = threading.Lock()
-    # lock_speaker_audio_queue = threading.Lock()
-
-    main_window = MainWindowClass(get_current_milli_time,
-                                  get_worker_seqnum,
+    main_window = MainWindowClass(get_worker_seq_num,
                                   get_worker_ssrc,
                                   set_join)
 
-    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),  # WebcamWorker
-                                              video_capture_queue,
-                                              preview_video_queue)
-
     worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,     # VideoProcessWorker
                                                          send_video_queue,
-                                                         get_current_milli_time,
-                                                         get_worker_seqnum,
+                                                         get_worker_seq_num,
                                                          get_worker_ssrc,
                                                          get_grm_mode_type)
+
+    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),  # WebcamWorker
+                                              worker_video_encode_packet,
+                                              video_capture_queue,
+                                              preview_video_queue)
 
     worker_preview = PreviewWorker("preview",
                                    preview_video_queue,
                                    main_window.preview)  # VideoViewWorker
 
     worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-                                                     get_current_milli_time,
-                                                     get_worker_seqnum,
+                                                     get_worker_seq_num,
                                                      get_worker_ssrc)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

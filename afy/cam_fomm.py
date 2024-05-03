@@ -323,6 +323,8 @@ if __name__ == "__main__":
             tt.tic()
             
             key = cv2.waitKey(1)
+            if key != -1:
+                print(f'### {key}')
 
             if cv2.getWindowProperty('cam', cv2.WND_PROP_VISIBLE) < 1.0:
                 break
