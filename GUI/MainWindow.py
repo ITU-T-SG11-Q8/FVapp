@@ -241,6 +241,7 @@ class MainWindowClass(QMainWindow, form_class):
                 print("\nCreation success.", creation_res.overlayId)
 
                 self.join_session.creationOverlayId = creation_res.overlayId
+                self.join_session.creationTitle = title
                 self.join_session.creationOwnerId = owner_id
                 self.join_session.creationAdminKey = admin_key
 
@@ -273,6 +274,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_ui.button_query.setDisabled(True)
                 self.join_ui.comboBox_overlay_id.setDisabled(True)
                 self.join_ui.comboBox_overlay_id.addItem(self.join_session.creationOverlayId)
+                self.join_ui.lineEditTitle.setText(self.join_session.creationTitle)
 
             if self.join_session.creationOwnerId is None or len(self.join_session.creationOwnerId) == 0:
                 self.join_ui.lineEdit_peer_id.setText('')
