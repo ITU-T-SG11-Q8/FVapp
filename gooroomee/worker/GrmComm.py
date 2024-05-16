@@ -1,4 +1,6 @@
 import time
+import threading
+
 import hp2papi as api
 
 from GUI.MainWindow import MainWindowClass
@@ -36,6 +38,9 @@ class GrmCommWorker(GrmParentThread):
         self.bin_wrapper = BINWrapper()
         self.device_type = p_device_type
         self.set_connect = p_set_connect
+        self.stop_comm_request = False
+        self.stop_comm_completed = False
+        self.lock = threading.Lock()
 
     def on_client_connected(self):
         print('grm_worker:on_client_connected')
@@ -76,10 +81,43 @@ class GrmCommWorker(GrmParentThread):
                 print(f"chat_message : {chat_message}")
                 self.main_window.output_chat(chat_message)
 
+    def set_join(self, p_join_flag: bool):
+        GrmParentThread.set_join(self, p_join_flag)
+
+        self.send_audio_queue.clear()
+        self.send_video_queue.clear()
+        self.send_chat_queue.clear()
+
+        if p_join_flag is False:
+            self.lock.acquire()
+            self.stop_comm_request = True
+            self.stop_comm_completed = False
+            self.lock.release()
+
+    def is_stopped_comm(self):
+        ret: bool = False
+
+        self.lock.acquire()
+        if self.stop_comm_completed is True:
+            self.stop_comm_completed = False
+            ret = True
+        self.lock.release()
+
+        return ret
+
     def run(self):
         while self.alive:
             print(f'GrmCommWorker running:{self.running}')
             while self.running:
+                if self.join_flag is False:
+                    self.lock.acquire()
+                    if self.stop_comm_request is True:
+                        self.stop_comm_request = False
+                        self.stop_comm_completed = True
+                    self.lock.release()
+
+                    continue
+
                 # print(f'GrmCommWorker queue size:{self.send_audio_queue.length()}')
                 if self.send_audio_queue.length() > 0:
                     # print(f'GrmCommWorker pop queue size:{self.send_audio_queue.length()}')
@@ -91,10 +129,10 @@ class GrmCommWorker(GrmParentThread):
                                                                self.main_window.join_session.overlayId,
                                                                self.main_window.join_session.audio_channel_id(),
                                                                audio_bin_data)
-                            # print("\nSendData Request:", send_request)
 
+                            # print("SendData Audio Request")
                             res = api.SendData(send_request)
-                            # print("\nSendData Response:", res)
+                            # print("  SendData Audio Response")
 
                             if res.code is api.ResponseCode.Success:
                                 # print("Video SendData success")
@@ -113,10 +151,9 @@ class GrmCommWorker(GrmParentThread):
                                                                self.main_window.join_session.overlayId,
                                                                self.main_window.join_session.video_channel_id(),
                                                                video_bin_data)
-                            # print("\nSendData Request:", send_request)
-
+                            # print("SendData Video Request")
                             res = api.SendData(send_request)
-                            # print("\nSendData Response:", res)
+                            # print("SendData Video Response")
 
                             if res.code is api.ResponseCode.Success:
                                 # print("Video SendData success")
@@ -134,10 +171,9 @@ class GrmCommWorker(GrmParentThread):
                                                                self.main_window.join_session.overlayId,
                                                                self.main_window.join_session.text_channel_id(),
                                                                chat_bin_data)
-                            # print("\nSendData Request:", send_request)
-
+                            # print("SendData Chat Request")
                             res = api.SendData(send_request)
-                            # print("\nSendData Response:", res)
+                            # print("SendData Chat Response")
 
                             if res.code is api.ResponseCode.Success:
                                 # print("Video SendData success")

@@ -26,6 +26,8 @@ class RoomJoinClass(QDialog):
         self.close()
 
     def overlay_id_search_func(self):
+        self.comboBox_overlay_id.clear()
+
         query_res = api.Query()
         if query_res.code is not api.ResponseCode.Success:
             print("\nQuery fail.")
