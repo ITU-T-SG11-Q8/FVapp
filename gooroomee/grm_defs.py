@@ -25,6 +25,7 @@ class ModeType:
 # @dataclass
 class SessionData:
     creationOverlayId: str = None
+    creationTitle: str = None
     creationOwnerId: str = None
     creationAdminKey: str = None
 

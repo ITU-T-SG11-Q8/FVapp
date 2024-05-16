@@ -121,7 +121,10 @@ class MainWindowClass(QMainWindow, form_class):
 
         self.button_chat_send.setDisabled(True)
         self.lineEdit_input_chat.setDisabled(True)
+        self.overlay_id = ""
         self.peer_id = ""
+        self.display_name = ""
+        self.private_key = ""
         self.timer = QTimer(self)
 
         if self.keyframe_period > 0:
@@ -238,6 +241,7 @@ class MainWindowClass(QMainWindow, form_class):
                 print("\nCreation success.", creation_res.overlayId)
 
                 self.join_session.creationOverlayId = creation_res.overlayId
+                self.join_session.creationTitle = title
                 self.join_session.creationOwnerId = owner_id
                 self.join_session.creationAdminKey = admin_key
 
@@ -270,6 +274,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_ui.button_query.setDisabled(True)
                 self.join_ui.comboBox_overlay_id.setDisabled(True)
                 self.join_ui.comboBox_overlay_id.addItem(self.join_session.creationOverlayId)
+                self.join_ui.lineEditTitle.setText(self.join_session.creationTitle)
 
             if self.join_session.creationOwnerId is None or len(self.join_session.creationOwnerId) == 0:
                 self.join_ui.lineEdit_peer_id.setText('')
@@ -284,15 +289,15 @@ class MainWindowClass(QMainWindow, form_class):
 
     def send_join_room_func(self):
         if self.join_button.text() == "Channel Join":
-            overlay_id = self.join_ui.comboBox_overlay_id.currentText()
-            peer_id = self.join_ui.lineEdit_peer_id.text()
-            display_name = self.join_ui.lineEdit_display_name.text()
-            private_key = self.join_ui.lineEdit_private_key.text()
+            self.overlay_id = self.join_ui.comboBox_overlay_id.currentText()
+            self.peer_id = self.join_ui.lineEdit_peer_id.text()
+            self.display_name = self.join_ui.lineEdit_display_name.text()
+            self.private_key = self.join_ui.lineEdit_private_key.text()
 
-            if len(private_key) == 0:
+            if len(self.private_key) == 0:
                 return
 
-            self.join_session.overlayId = overlay_id
+            self.join_session.overlayId = self.overlay_id
 
             self.room_information_button.setDisabled(False)
             self.create_button.setDisabled(True)
@@ -300,16 +305,16 @@ class MainWindowClass(QMainWindow, form_class):
             self.button_chat_send.setDisabled(False)
             self.lineEdit_input_chat.setDisabled(False)
 
-            self.join_session.overlayId = overlay_id
-            self.join_session.ownerId = peer_id
+            self.join_session.overlayId = self.overlay_id
+            self.join_session.ownerId = self.peer_id
             self.room_information_button.setDisabled(False)
 
             api.SetNotificatonListener(overlayId=self.join_session.overlayId,
                                        peerId=self.join_session.ownerId,
                                        func=self.session_notification_listener)
 
-            private_key_abs = os.path.abspath(private_key)
-            join_request = api.JoinRequest(overlay_id, "", peer_id, display_name, private_key_abs)
+            private_key_abs = os.path.abspath(self.private_key)
+            join_request = api.JoinRequest(self.overlay_id, "", self.peer_id, self.display_name, private_key_abs)
             print("\nJoinRequest:", join_request)
             join_response = api.Join(join_request)
             print("\nJoinResponse:", join_response)
@@ -317,7 +322,6 @@ class MainWindowClass(QMainWindow, form_class):
 
             if join_response.code is api.ResponseCode.Success:
                 self.join_button.setText("Channel Leave")
-                self.peer_id = peer_id
                 self.join_session.channelList = join_response.channelList
                 self.mode_type = self.join_session.video_channel_type()
                 # self.join_session.title = join_response.title
@@ -332,18 +336,23 @@ class MainWindowClass(QMainWindow, form_class):
             self.leave_room()
 
     def leave_room(self):
-        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId,
-                                         peerId=self.peer_id,
-                                         accessKey=self.join_session.accessKey))
-
         self.set_join(False)
         self.join_button.setText("Channel Join")
         self.create_button.setDisabled(False)
+
+        while self.worker_grm_comm.is_stopped_comm() is False:
+            time.sleep(1)
+
+        res = api.Leave(api.LeaveRequest(overlayId=self.join_session.overlayId,
+                                         peerId=self.peer_id,
+                                         accessKey=self.join_session.accessKey))
 
         if res.code is not api.ResponseCode.Success:
             print("\nLeave fail.", res.code)
 
         self.join_session.clear_value()
+        self.listWidget.clear()
+        self.listWidget_chat_message.clear()
 
     def information_room(self):
         if self.join_session.overlayId is not None:
@@ -447,7 +456,7 @@ class MainWindowClass(QMainWindow, form_class):
     def send_chat(self):
         print('send chat')
         input_message = self.lineEdit_input_chat.text()
-        self.output_chat(self.peer_id, input_message)
+        self.output_chat(self.display_name, None, input_message)
         self.lineEdit_input_chat.clear()
 
         chat_message = self.bin_wrapper.to_bin_chat_data(input_message)
@@ -570,16 +579,8 @@ class MainWindowClass(QMainWindow, form_class):
         print("\nRemoval success.")
         self.join_session = SessionData()
 
-    def get_my_display_name(self):
-        for i in self.join_peer:
-            if i.peer_id == self.peer_id:
-                return i.display_name
-        return "Invalid user"
-
-    def output_chat(self, peer_id, message):
-        display_name = self.get_my_display_name()
-
-        if peer_id is not None:
+    def output_chat(self, display_name, peer_id, message):
+        if display_name is None and peer_id is not None:
             for i in self.join_peer:
                 if i.peer_id == peer_id:
                     display_name = i.display_name
@@ -675,7 +676,7 @@ class MainWindowClass(QMainWindow, form_class):
                     if _type == TYPE_INDEX.TYPE_DATA_CHAT:
                         chat_message = self.bin_wrapper.parse_chat(_value)
                         print(f"chat_message. peer_id:{data.peerId} message:{chat_message}")
-                        self.output_chat(data.peerId, chat_message)
+                        self.output_chat(None, data.peerId, chat_message)
 
     def update_user_list(self):
         self.listWidget.clear()
