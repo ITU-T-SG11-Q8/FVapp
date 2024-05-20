@@ -324,8 +324,8 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_button.setText("Channel Leave")
                 self.join_session.channelList = join_response.channelList
                 self.mode_type = self.join_session.video_channel_type()
-                # self.join_session.title = join_response.title
-                # self.join_session.description = join_response.description
+                self.join_session.title = join_response.title
+                self.join_session.description = join_response.description
                 self.set_join(True)
 
                 if self.worker_video_encode_packet is not None:
@@ -530,41 +530,47 @@ class MainWindowClass(QMainWindow, form_class):
 
     def search_replace_image(self):
         replace_image = QFileDialog.getOpenFileName(self, filter='*.jpg')
+        if replace_image is None or len(replace_image[0]) == 0:
+            return
+
         self.lineEdit_search_replace_image.setText(replace_image[0])
 
-        with open(replace_image[0], "rb") as f:
-            bytes_read = f.read()
+        try:
+            with open(replace_image[0], "rb") as f:
+                bytes_read = f.read()
 
-            frame = np.frombuffer(bytes_read, dtype=np.uint8)
-            frame = cv2.imdecode(frame, flags=1)
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = np.frombuffer(bytes_read, dtype=np.uint8)
+                frame = cv2.imdecode(frame, flags=1)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            img = frame
-            w, h = frame.shape[:2]
-            if w != IMAGE_SIZE or h != IMAGE_SIZE:
-                x = 0
-                y = 0
-                if w > h:
-                    x = int((w - h) / 2)
-                    w = h
-                elif h > w:
-                    y = int((h - w) / 2)
-                    h = w
+                img = frame
+                w, h = frame.shape[:2]
+                if w != IMAGE_SIZE or h != IMAGE_SIZE:
+                    x = 0
+                    y = 0
+                    if w > h:
+                        x = int((w - h) / 2)
+                        w = h
+                    elif h > w:
+                        y = int((h - w) / 2)
+                        h = w
 
-                cropped_img = frame[x: x + w, y: y + h]
-                img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+                    cropped_img = frame[x: x + w, y: y + h]
+                    img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
-            self.replace_image_frame = img
+                self.replace_image_frame = img
 
-            if self.checkBox_use_replace_image.isChecked() is True and self.worker_video_encode_packet is not None:
-                self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
+                if self.checkBox_use_replace_image.isChecked() is True and self.worker_video_encode_packet is not None:
+                    self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
 
-            h, w, c = self.replace_image_frame.shape
-            q_img = QtGui.QImage(self.replace_image_frame.data, w, h, w * c, QtGui.QImage.Format_RGB888)
-            pixmap = QtGui.QPixmap.fromImage(q_img)
-            pixmap_resized = pixmap.scaledToWidth(self.replace_image_view.width())
-            if pixmap_resized is not None:
-                self.replace_image_view.setPixmap(pixmap)
+                h, w, c = self.replace_image_frame.shape
+                q_img = QtGui.QImage(self.replace_image_frame.data, w, h, w * c, QtGui.QImage.Format_RGB888)
+                pixmap = QtGui.QPixmap.fromImage(q_img)
+                pixmap_resized = pixmap.scaledToWidth(self.replace_image_view.width())
+                if pixmap_resized is not None:
+                    self.replace_image_view.setPixmap(pixmap)
+        except Exception as err:
+            print(err)
 
     def remove_room(self):
         print(f"overlayId:{self.join_session.creationOverlayId}, ownerId:{self.join_session.creationOwnerId}, "

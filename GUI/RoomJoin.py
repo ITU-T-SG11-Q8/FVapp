@@ -37,7 +37,7 @@ class RoomJoinClass(QDialog):
         self.close()
 
     def on_comboBox_overlay_id_changed(self, index):
-        if index < len(self.overlays):
+        if 0 <= index < len(self.overlays):
             title = self.overlays[index].title
             self.lineEditTitle.setText(title)
 
