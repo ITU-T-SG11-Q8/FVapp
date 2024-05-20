@@ -324,8 +324,8 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_button.setText("Channel Leave")
                 self.join_session.channelList = join_response.channelList
                 self.mode_type = self.join_session.video_channel_type()
-                # self.join_session.title = join_response.title
-                # self.join_session.description = join_response.description
+                self.join_session.title = join_response.title
+                self.join_session.description = join_response.description
                 self.set_join(True)
 
                 if self.worker_video_encode_packet is not None:
