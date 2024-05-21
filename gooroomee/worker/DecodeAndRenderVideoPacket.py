@@ -1,6 +1,6 @@
 import time
 import cv2
-from PyQt5.QtCore import pyqtSlot
+from PyQt5.QtCore import pyqtSlot, QThread
 
 from GUI.MainWindow import MainWindowClass
 from GUI.RenderView import RenderViewClass
@@ -15,13 +15,47 @@ from gooroomee.grm_queue import GRMQueue
 import numpy as np
 
 
-class RenderView:
-    def __init__(self, predict_generator, render_view_class):
+def get_current_time_ms():
+    return round(time.time() * 1000)
+
+
+class RenderView(QThread):
+    def __init__(self, worker_video_decode_and_render_packet, peer_id, predict_generator, render_view_class):
+        super().__init__()
+
+        self.worker_video_decode_and_render_packet = worker_video_decode_and_render_packet
+        self.peer_id = peer_id
         self.predict_generator = predict_generator
         self.render_view_class = render_view_class
         self.find_key_frame = False
+        self.time_request_recv_key_frame = 0
         self.avatar_kp = None
+        self.recv_video_queue = GRMQueue("recv_audio", False)
+        self.bin_wrapper = BINWrapper()
+        self.running = False
 
+    def __del__(self):
+        self.wait()
+
+    def start_process(self):
+        self.running = True
+        self.start()
+
+    def stop_process(self):
+        self.running = False
+
+    def run(self):
+        while self.running:
+            if self.recv_video_queue.length() > 0:
+                value = self.recv_video_queue.pop()
+
+                kp_norm = self.bin_wrapper.parse_kp_norm(value, self.predict_generator.device)
+                _frame = self.predict_generator.generate(kp_norm)
+
+                # cv2.imshow('client', out[..., ::-1])
+                self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame)
+
+            time.sleep(0.1)
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
     add_peer_view_signal = QtCore.pyqtSignal(str, str)
@@ -112,11 +146,12 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                                 render_view = self.render_views[_peer_id]
 
                                 if render_view.find_key_frame is True:
-                                    kp_norm = self.bin_wrapper.parse_kp_norm(_value, render_view.predict_generator.device)
-                                    _frame = render_view.predict_generator.generate(kp_norm)
-
-                                    # cv2.imshow('client', out[..., ::-1])
-                                    self.draw_render_video(_peer_id, _frame)
+                                    render_view.request_recv_key_frame = 0
+                                    render_view.recv_video_queue.put(_value)
+                                else:
+                                    if render_view.time_request_recv_key_frame == 0 or get_current_time_ms() - render_view.request_recv_key_frame >= 1000:
+                                        render_view.request_recv_key_frame = get_current_time_ms()
+                                        self.worker_video_encode_packet.request_recv_key_frame()
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_SPIGA:
                             shape, features_tracker, features_spiga = self.bin_wrapper.parse_features(_value)
@@ -188,19 +223,23 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             render_view_class.setWindowTitle(display_name)
             render_view_class.show()
 
-            render_view = RenderView(predict_generator, render_view_class)
+            render_view = RenderView(self, peer_id, predict_generator, render_view_class)
             self.render_views[peer_id] = render_view
+
+            render_view.start_process()
 
     @pyqtSlot(str)
     def remove_peer_view(self, peer_id):
         if peer_id == 'all':
             for render_view in self.render_views.values():
                 render_view.render_view_class.close()
+                render_view.stop_process()
                 self.pending_predict_generators.append(render_view.predict_generator)
             self.render_views.clear()
         elif self.render_views.get(peer_id) is not None:
             render_view = self.render_views[peer_id]
             render_view.render_view_class.close()
+            render_view.stop_process()
             self.pending_predict_generators.append(render_view.predict_generator)
             del self.render_views[peer_id]
 
