@@ -1,9 +1,5 @@
 import time
 
-from PyQt5 import QtCore
-from PyQt5.QtCore import pyqtSlot
-import cv2
-
 from afy.videocaptureasync import VideoCaptureAsync
 from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE
 from gooroomee.grm_queue import GRMQueue
