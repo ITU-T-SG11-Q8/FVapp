@@ -4,29 +4,41 @@ from PyQt5.QtCore import pyqtSlot
 
 from GUI.MainWindow import MainWindowClass
 from GUI.RenderView import RenderViewClass
-from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
-from afy.arguments import opt
-from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE, PeerData
+from gooroomee.grm_defs import GrmParentThread, PeerData
 from PyQt5 import QtCore
 from PyQt5 import QtGui
 
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
-from gooroomee.grm_predictor import GRMPredictor
+from gooroomee.grm_predictor import GRMPredictor, GRMPredictGenerator
 from gooroomee.grm_queue import GRMQueue
-from afy.utils import crop, resize
 
 import numpy as np
+
+
+class RenderView:
+    def __init__(self, predict_generator, render_view_class):
+        self.predict_generator = predict_generator
+        self.render_view_class = render_view_class
+        self.find_key_frame = False
+        self.avatar_kp = None
 
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
     add_peer_view_signal = QtCore.pyqtSignal(str, str)
     remove_peer_view_signal = QtCore.pyqtSignal(str)
     render_views = {}
+    pending_predict_generators = []
 
     def __init__(self,
                  p_main_window,
                  p_worker_video_encode_packet,
-                 p_recv_video_queue):
+                 p_recv_video_queue,
+                 p_config,
+                 p_checkpoint,
+                 p_fa,
+                 p_device,
+                 p_predict_dectector,
+                 p_spiga_wrapper):
         super().__init__()
         self.main_window: MainWindowClass = p_main_window
         self.worker_video_encode_packet = p_worker_video_encode_packet
@@ -34,14 +46,16 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.height = 0
         self.video = 0
         self.recv_video_queue: GRMQueue = p_recv_video_queue
-        self.avatar_kp = None
-        self.predictor = None
+        self.config = p_config
+        self.checkpoint = p_checkpoint
+        self.fa = p_fa
+        self.device = p_device
+        self.predict_dectector = p_predict_dectector
+        self.spiga_wrapper = p_spiga_wrapper
         self.connect_flag: bool = False
-        self.find_key_frame: bool = False
         # self.lock = None
         self.cur_ava = 0
         self.bin_wrapper = BINWrapper()
-        self.spigaDecodeWrapper = None
 
         self.add_peer_view_signal.connect(self.add_peer_view)
         self.remove_peer_view_signal.connect(self.remove_peer_view)
@@ -50,42 +64,23 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         GrmParentThread.set_join(self, p_join_flag)
         self.remove_peer_view_signal.emit('all')
 
-    def create_spiga(self):
-        if self.spigaDecodeWrapper is None:
-            print(f'create_spiga DECODER')
-            self.spigaDecodeWrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
-
-    def create_avatarify(self):
-        if self.predictor is None:
-            predictor_args = {
-                'config_path': opt.config,
-                'checkpoint_path': opt.checkpoint,
-                'relative': opt.relative,
-                'adapt_movement_scale': opt.adapt_scale,
-                'enc_downscale': opt.enc_downscale,
-            }
-
-            print(f'create_avatarify DECODER')
-            self.predictor = GRMPredictor(
-                **predictor_args
-            )
-
     def set_connect(self, p_connect_flag: bool):
         self.connect_flag = p_connect_flag
         print(f"DecodeAndRenderVideoPacketWorker connect:{self.connect_flag}")
 
-    def change_avatar(self, new_avatar):
-        print(f'decoder. change_avatar, resolution:{new_avatar.shape[0]} x {new_avatar.shape[1]}')
-        self.avatar_kp = self.predictor.get_frame_kp(new_avatar)
+    def change_avatar(self, peer_id, new_avatar):
+        print(f'decoder. change_avatar, peer_id:{peer_id} resolution:{new_avatar.shape[0]} x {new_avatar.shape[1]}')
+        if self.render_views.get(peer_id) is None:
+            return
+
+        render_view = self.render_views[peer_id]
+        render_view.avatar_kp = GRMPredictor.get_frame_kp(self.fa, new_avatar)
         avatar = new_avatar
-        self.predictor.set_source_image(avatar)
-        self.predictor.reset_frames()
-        self.find_key_frame = True
+        render_view.predict_generator.set_source_image(self.predict_dectector.kp_detector, avatar)
+        render_view.find_key_frame = True
 
     def run(self):
         while self.alive:
-            self.find_key_frame = False
-
             while self.running:
                 if self.recv_video_queue.length() > 0:
                     media_queue_data = self.recv_video_queue.pop()
@@ -104,7 +99,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
                             new_avatar = key_frame.copy()
 
-                            self.change_avatar(new_avatar)
+                            self.change_avatar(_peer_id, new_avatar)
                             self.draw_render_video(_peer_id, new_avatar)
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME_REQUEST:
@@ -113,18 +108,19 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY:
                             # print(f"recv video queue:{self.recv_video_queue.length()}")
-                            if self.find_key_frame is True:
-                                kp_norm = self.bin_wrapper.parse_kp_norm(_value, self.predictor.device)
-                                _frame = self.predictor.decoding(kp_norm)
+                            if self.render_views.get(_peer_id) is not None:
+                                render_view = self.render_views[_peer_id]
 
-                                # cv2.imshow('client', out[..., ::-1])
-                                self.draw_render_video(_peer_id, _frame)
-                            else:
-                                print(f'not received key frame. {len(_value)}')
+                                if render_view.find_key_frame is True:
+                                    kp_norm = self.bin_wrapper.parse_kp_norm(_value, render_view.predict_generator.device)
+                                    _frame = render_view.predict_generator.generate(kp_norm)
+
+                                    # cv2.imshow('client', out[..., ::-1])
+                                    self.draw_render_video(_peer_id, _frame)
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_SPIGA:
                             shape, features_tracker, features_spiga = self.bin_wrapper.parse_features(_value)
-                            _frame = self.spigaDecodeWrapper.decode(features_tracker, features_spiga)
+                            _frame = self.spiga_wrapper.decode(features_tracker, features_spiga)
 
                             def convert(_img, target_type_min, target_type_max, target_type):
                                 _imin = _img.min()
@@ -158,28 +154,54 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
             pixmap = QtGui.QPixmap.fromImage(q_img)
 
-            render_view = self.render_views[peer_id]
-            pixmap_resized = pixmap.scaledToWidth(render_view.render_location.width())
+            render_view_class = self.render_views[peer_id].render_view_class
+            pixmap_resized = pixmap.scaledToWidth(render_view_class.render_location.width())
             if pixmap_resized is not None:
-                render_view.render_location.setPixmap(pixmap)
+                render_view_class.render_location.setPixmap(pixmap)
+
 
     @pyqtSlot(str, str)
     def add_peer_view(self, peer_id, display_name):
         if self.render_views.get(peer_id) is None:
-            render_view = RenderViewClass()
-            render_view.setWindowTitle(display_name)
-            render_view.show()
+            predict_generator = None
+            if len(self.pending_predict_generators) > 0:
+                predict_generator = self.pending_predict_generators.pop()
+            else:
+                predict_generator_args = {
+                    # 'config_path': opt.config,
+                    # 'checkpoint_path': opt.checkpoint,
+                    # 'relative': opt.relative,
+                    # 'adapt_movement_scale': opt.adapt_scale,
+                    # 'enc_downscale': opt.enc_downscale,
+                    'config': self.config,
+                    'checkpoint': self.checkpoint,
+                    'device': self.device
+                }
+
+                print(f'will create_avatarify_decoder')
+                predict_generator = GRMPredictGenerator(
+                    **predict_generator_args
+                )
+                print(f'did create_avatarify_decoder')
+
+            render_view_class = RenderViewClass()
+            render_view_class.setWindowTitle(display_name)
+            render_view_class.show()
+
+            render_view = RenderView(predict_generator, render_view_class)
             self.render_views[peer_id] = render_view
 
     @pyqtSlot(str)
     def remove_peer_view(self, peer_id):
         if peer_id == 'all':
             for render_view in self.render_views.values():
-                render_view.close()
+                render_view.render_view_class.close()
+                self.pending_predict_generators.append(render_view.predict_generator)
             self.render_views.clear()
         elif self.render_views.get(peer_id) is not None:
             render_view = self.render_views[peer_id]
-            render_view.close()
+            render_view.render_view_class.close()
+            self.pending_predict_generators.append(render_view.predict_generator)
             del self.render_views[peer_id]
 
     def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):
