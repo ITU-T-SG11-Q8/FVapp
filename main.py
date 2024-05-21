@@ -11,10 +11,13 @@ from PyQt5.QtWidgets import QApplication
 import torch
 import hp2papi as api
 import random
-import time
 
-from gooroomee.grm_defs import ModeType
+import yaml
+import face_alignment
+
+from gooroomee.grm_defs import ModeType, IMAGE_SIZE
 from gooroomee.grm_queue import GRMQueue
+from gooroomee.grm_predictor import GRMPredictDetector
 from gooroomee.worker.CaptureFrame import CaptureFrameWorker
 from gooroomee.worker.DecodeAndRenderVideoPacket import DecodeAndRenderVideoPacketWorker
 from gooroomee.worker.DecodeSpeakerPacket import DecodeSpeakerPacketWorker
@@ -22,6 +25,7 @@ from gooroomee.worker.EncodeMicPacket import EncodeMicPacketWorker
 from gooroomee.worker.EncodeVideoPacket import EncodeVideoPacketWorker
 from gooroomee.worker.GrmComm import GrmCommWorker
 from gooroomee.worker.Preview import PreviewWorker
+from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
 
 log = Tee('./var/log/cam_gooroomee.log')
 
@@ -49,6 +53,13 @@ worker_speaker_decode_packet: DecodeSpeakerPacketWorker = None
 worker_seq_num: int = 0
 worker_ssrc: int = 0
 
+device = None
+config = None
+checkpoint = None
+fa = None
+predict_dectector: GRMPredictDetector = None
+spiga_wrapper: SPIGAWrapper = None
+
 
 def get_worker_seq_num():
     global worker_seq_num
@@ -75,6 +86,12 @@ def all_start_worker():
     global worker_mic_encode_packet
     global worker_speaker_decode_packet
     global worker_grm_comm
+    global device
+    global config
+    global checkpoint
+    global fa
+    global predict_dectector
+    global spiga_wrapper
 
     if worker_video_encode_packet is not None:
         worker_video_encode_packet.start_process()
@@ -83,7 +100,10 @@ def all_start_worker():
                                                              send_video_queue,
                                                              get_worker_seq_num,
                                                              get_worker_ssrc,
-                                                             get_grm_mode_type)
+                                                             get_grm_mode_type,
+                                                             predict_dectector,
+                                                             fa,
+                                                             spiga_wrapper)
 
     if worker_capture_frame is not None:
         worker_capture_frame.start_process()
@@ -124,7 +144,13 @@ def all_start_worker():
     else:
         worker_video_decode_and_render_packet = DecodeAndRenderVideoPacketWorker(main_window,
                                                                                  worker_video_encode_packet,
-                                                                                 recv_video_queue)
+                                                                                 recv_video_queue,
+                                                                                 config,
+                                                                                 checkpoint,
+                                                                                 fa,
+                                                                                 device,
+                                                                                 predict_dectector,
+                                                                                 spiga_wrapper)
 
     if worker_speaker_decode_packet is not None:
         worker_speaker_decode_packet.start_process()
@@ -167,14 +193,6 @@ def set_join(join_flag: bool):
     global worker_grm_comm
     global worker_seq_num
     global worker_ssrc
-
-    if join_flag is True:
-        if main_window.mode_type == ModeType.KDM:
-            worker_video_decode_and_render_packet.create_spiga()
-            worker_video_encode_packet.create_spiga()
-        else:
-            worker_video_decode_and_render_packet.create_avatarify()
-            worker_video_encode_packet.create_avatarify()
 
     print(f'set_join join_flag:{join_flag}')
 
@@ -220,6 +238,34 @@ if __name__ == '__main__':
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
 
+    with open(opt.config) as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    checkpoint = torch.load(opt.checkpoint, map_location=device)
+    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=device)
+
+    if predict_dectector is None:
+        print(f'will create_avatarify_encoder')
+        predict_dectector_args = {
+            # 'config_path': opt.config,
+            # 'checkpoint_path': opt.checkpoint,
+            # 'relative': opt.relative,
+            # 'adapt_movement_scale': opt.adapt_scale,
+            # 'enc_downscale': opt.enc_downscale
+            'config': config,
+            'checkpoint': checkpoint,
+            'device': device
+        }
+        predict_dectector = GRMPredictDetector(
+            **predict_dectector_args
+        )
+        print(f'did create_avatarify_encoder')
+
+    if spiga_wrapper is None:
+        print(f'will create_spiga_wrapper')
+        spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
+        print(f'did create_spiga_wrapper')
+
     main_window = MainWindowClass(get_worker_seq_num,
                                   get_worker_ssrc,
                                   set_join)
@@ -228,7 +274,10 @@ if __name__ == '__main__':
                                                          send_video_queue,
                                                          get_worker_seq_num,
                                                          get_worker_ssrc,
-                                                         get_grm_mode_type)
+                                                         get_grm_mode_type,
+                                                         predict_dectector,
+                                                         fa,
+                                                         spiga_wrapper)
 
     worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),  # WebcamWorker
                                               worker_video_encode_packet,
@@ -239,11 +288,10 @@ if __name__ == '__main__':
                                    preview_video_queue,
                                    main_window.preview)  # VideoViewWorker
 
-    worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-                                                     get_worker_seq_num,
-                                                     get_worker_ssrc)
+    # worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
+    #                                                  get_worker_seq_num,
+    #                                                  get_worker_ssrc)
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     worker_grm_comm = GrmCommWorker(main_window,
                                     send_audio_queue,
                                     send_video_queue,
@@ -255,7 +303,13 @@ if __name__ == '__main__':
 
     worker_video_decode_and_render_packet = DecodeAndRenderVideoPacketWorker(main_window,
                                                                              worker_video_encode_packet,
-                                                                             recv_video_queue)  # VideoRecvWorker
+                                                                             recv_video_queue,
+                                                                             config,
+                                                                             checkpoint,
+                                                                             fa,
+                                                                             device,
+                                                                             predict_dectector,
+                                                                             spiga_wrapper)  # VideoRecvWorker
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 

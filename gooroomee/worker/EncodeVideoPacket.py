@@ -1,12 +1,8 @@
 import time
 import cv2
-from PyQt5 import QtCore
-from PyQt5.QtCore import pyqtSlot
 
 from afy.utils import crop, resize
-from afy.arguments import opt
 
-from SPIGA.spiga.gooroomee_spiga.spiga_wrapper import SPIGAWrapper
 from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE, ModeType
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_predictor import GRMPredictor
@@ -28,7 +24,10 @@ class EncodeVideoPacketWorker(GrmParentThread):
                  p_send_video_queue,
                  p_get_worker_seq_num,
                  p_get_worker_ssrc,
-                 p_get_grm_mode_type):
+                 p_get_grm_mode_type,
+                 p_predict_dectector,
+                 p_fa,
+                 p_spiga_wrapper):
         super().__init__()
         self.width = 0
         self.height = 0
@@ -39,39 +38,20 @@ class EncodeVideoPacketWorker(GrmParentThread):
         self.get_worker_seq_num = p_get_worker_seq_num
         self.get_worker_ssrc = p_get_worker_ssrc
         self.get_grm_mode_type = p_get_grm_mode_type
+        self.predict_dectector = p_predict_dectector
+        self.fa = p_fa
+        self.spiga_wrapper = p_spiga_wrapper
         self.request_send_key_frame_flag: bool = False
         self.request_recv_key_frame_flag: bool = False
         self.connect_flag: bool = False
         self.avatar_kp = None
-        self.predictor = None
-        self.spigaEncodeWrapper = None
 
-    def create_avatarify(self):
-        if self.predictor is None:
-            predictor_args = {
-                'config_path': opt.config,
-                'checkpoint_path': opt.checkpoint,
-                'relative': opt.relative,
-                'adapt_movement_scale': opt.adapt_scale,
-                'enc_downscale': opt.enc_downscale
-            }
-
-            print(f'create_avatarify ENCODER')
-            self.predictor = GRMPredictor(
-                **predictor_args
-            )
-
-    def change_avatar(self, new_avatar):
-        print(f'encoder. change_avatar, resolution:{new_avatar.shape[0]} x {new_avatar.shape[1]}')
-        self.avatar_kp = self.predictor.get_frame_kp(new_avatar)
+    def encoder_change_avatar(self, new_avatar):
+        print(f'encoder_change_avatar, resolution:{new_avatar.shape[0]} x {new_avatar.shape[1]}')
+        self.avatar_kp = GRMPredictor.get_frame_kp(self.fa, new_avatar)
         avatar = new_avatar
-        self.predictor.set_source_image(avatar)
-        self.predictor.reset_frames()
-
-    def create_spiga(self):
-        if self.spigaEncodeWrapper is None:
-            print(f'create_spiga ENCODER')
-            self.spigaEncodeWrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
+        self.predict_dectector.set_source_image(avatar)
+        self.predict_dectector.reset_frames()
 
     def set_replace_image_frame(self, frame):
         if frame is None:
@@ -110,7 +90,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
 
         if img is not None:
             new_avatar = img.copy()
-            self.change_avatar(new_avatar)
+            self.encoder_change_avatar(new_avatar)
 
             key_frame = cv2.imencode('.jpg', img)
             key_frame_bin_data = self.bin_wrapper.to_bin_key_frame(key_frame[1])
@@ -167,14 +147,14 @@ class EncodeVideoPacketWorker(GrmParentThread):
 
                     if video_bin_data is None:
                         if self.get_grm_mode_type() == ModeType.KDM:
-                            features_tracker, features_spiga = self.spigaEncodeWrapper.encode(frame)
+                            features_tracker, features_spiga = self.spiga_wrapper.encode(frame)
                             if features_tracker is not None and features_spiga is not None:
                                 video_bin_data = self.bin_wrapper.to_bin_features(frame,
                                                                                   features_tracker,
                                                                                   features_spiga)
                         else:
                             if self.sent_key_frame is True:
-                                kp_norm = self.predictor.encoding(frame)
+                                kp_norm = self.predict_dectector.detect(self.fa, frame)
                                 video_bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
 
                     if video_bin_data is not None:

@@ -635,6 +635,11 @@ class MainWindowClass(QMainWindow, form_class):
                 if self.worker_video_encode_packet is not None:
                     self.worker_video_encode_packet.request_send_key_frame()
 
+    def update_user_list(self):
+        self.listWidget.clear()
+        for i in self.join_peer:
+            self.listWidget.addItem(i.display_name)
+
     def session_notification_listener(self, change: api.Notification):
         # print(f"session_notification_listener notification.{change}")
 
@@ -660,31 +665,30 @@ class MainWindowClass(QMainWindow, form_class):
             peer_change: api.PeerChangeNotification = change
             print(f"PeerChangeNotification received. {peer_change}")
             print(f"Peer change session is {peer_change.overlayId}")
+
+            peerId = peer_change.changePeerId.split(';')[0]
             if self.join_session.overlayId == peer_change.overlayId:
-                update_peer_data: PeerData = PeerData(peer_id=peer_change.peerId, display_name=peer_change.displayName)
+                update_peer_data: PeerData = PeerData(peer_id=peerId, display_name=peer_change.displayName)
                 self.update_user(update_peer_data, peer_change.leave)
             self.update_user_list()
         elif change.notificationType is api.NotificationType.DataNotification:
             data: api.DataNotification = change
             if data.dataType == api.DataType.Data.value:
-                # print(f"\nData received. peer_id:{data.peerId}")
+                peerId = data.sendPeerId.split(';')[0]
+                # print(f"\nData received. peer_id:{peerId}")
                 _, _, _, _, _mediatype, _, _bindata = self.bin_wrapper.parse_wrap_common_header(data.data)
                 if _mediatype == TYPE_INDEX.TYPE_VIDEO:
-                    media_queue_data = MediaQueueData(data.peerId, _bindata)
+                    media_queue_data = MediaQueueData(peerId, _bindata)
                     if self.worker_grm_comm is not None:
                         self.worker_grm_comm.recv_video_queue.put(media_queue_data)
                 elif _mediatype == TYPE_INDEX.TYPE_AUDIO:
-                    media_queue_data = MediaQueueData(data.peerId, _bindata)
+                    media_queue_data = MediaQueueData(peerId, _bindata)
                     if self.worker_grm_comm is not None:
                         self.worker_grm_comm.recv_audio_queue.put(media_queue_data)
                 elif _mediatype == TYPE_INDEX.TYPE_DATA:
                     _type, _value, _ = self.bin_wrapper.parse_bin(_bindata)
                     if _type == TYPE_INDEX.TYPE_DATA_CHAT:
                         chat_message = self.bin_wrapper.parse_chat(_value)
-                        print(f"chat_message. peer_id:{data.peerId} message:{chat_message}")
-                        self.output_chat(None, data.peerId, chat_message)
+                        print(f"chat_message. peer_id:{peerId} message:{chat_message}")
+                        self.output_chat(None, peerId, chat_message)
 
-    def update_user_list(self):
-        self.listWidget.clear()
-        for i in self.join_peer:
-            self.listWidget.addItem(i.display_name)
