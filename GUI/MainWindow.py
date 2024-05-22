@@ -1,8 +1,8 @@
 import os
 
 import pyaudio
-from PyQt5 import uic, QtGui
-from PyQt5.QtCore import QTimer
+from PyQt5 import QtCore, uic, QtGui
+from PyQt5.QtCore import QTimer, pyqtSlot
 from PyQt5.QtWidgets import QMainWindow, QFileDialog
 
 from GUI.RoomCreate import RoomCreateClass
@@ -77,6 +77,9 @@ def get_current_time_ms():
 class MainWindowClass(QMainWindow, form_class):
     mode_type: ModeType = ModeType.SNNM
     replace_image_frame = None
+    update_log_signal = QtCore.pyqtSignal(str)
+    log_str: str = ""
+    log_index: int = 0
 
     def __init__(self,
                  p_get_worker_seq_num,
@@ -136,6 +139,18 @@ class MainWindowClass(QMainWindow, form_class):
         self.room_create_ui = RoomCreateClass(self.create_room_ok_func)
         self.join_ui = RoomJoinClass(self.send_join_room_func)
         self.room_information_ui = RoomInformationClass(self.modify_information_room)
+
+        self.update_log_signal.connect(self.update_log)
+
+    @pyqtSlot(str)
+    def update_log(self, log):
+        self.label_log.setText(log)
+
+    def request_update_log(self, log):
+        self.log_str = '[%3d] %s' % (self.log_index, log) + '\n' + self.log_str
+        self.log_index += 1
+
+        self.update_log_signal.emit(self.log_str)
 
     def set_workers(self,
                     p_send_chat_queue,
@@ -209,8 +224,10 @@ class MainWindowClass(QMainWindow, form_class):
 
             if self.room_create_ui.radioButton_kdm.isChecked() is True:
                 self.mode_type = ModeType.KDM
+                self.request_update_log(f'request to create KDM room. title:{title}')
             else:
                 self.mode_type = ModeType.SNNM
+                self.request_update_log(f'request to create SNNM mode room. title:{title}')
 
             creation_req = api.CreationRequest(title=title, description=description,
                                                ownerId=owner_id, adminKey=admin_key)
@@ -239,6 +256,10 @@ class MainWindowClass(QMainWindow, form_class):
 
             if creation_res.code is api.ResponseCode.Success:
                 print("\nCreation success.", creation_res.overlayId)
+                if self.room_create_ui.radioButton_kdm.isChecked() is True:
+                    self.request_update_log(f'succeed to create KDM mode room. overlayId:{creation_res.overlayId}')
+                else:
+                    self.request_update_log(f'succeed to create SNNM mode room. overlayId:{creation_res.overlayId}')
 
                 self.join_session.creationOverlayId = creation_res.overlayId
                 self.join_session.creationTitle = title
@@ -256,9 +277,16 @@ class MainWindowClass(QMainWindow, form_class):
                                            func=self.session_notification_listener)
             else:
                 print("\nCreation fail.", creation_res.code)
+                if self.mode_type == ModeType.KDM:
+                    self.request_update_log(f'failed to create KDM mode room. overlayId:{creation_res.overlayId}')
+                else:
+                    self.request_update_log(f'failed to create SNNM mode room. overlayId:{creation_res.overlayId}')
+
                 self.join_session.overlayId = ""
 
         elif self.create_button.text() == "Channel Delete":
+            self.request_update_log(f'delete room.')
+
             self.remove_room()
             self.all_stop_worker()
             self.room_create_ui.close()
@@ -295,6 +323,7 @@ class MainWindowClass(QMainWindow, form_class):
             self.private_key = self.join_ui.lineEdit_private_key.text()
 
             if len(self.private_key) == 0:
+                self.request_update_log(f'no private_key find.')
                 return
 
             self.join_session.overlayId = self.overlay_id
@@ -313,6 +342,7 @@ class MainWindowClass(QMainWindow, form_class):
                                        peerId=self.join_session.ownerId,
                                        func=self.session_notification_listener)
 
+            self.request_update_log(f'request to join room')
             private_key_abs = os.path.abspath(self.private_key)
             join_request = api.JoinRequest(self.overlay_id, "", self.peer_id, self.display_name, private_key_abs)
             print("\nJoinRequest:", join_request)
@@ -328,14 +358,26 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_session.description = join_response.description
                 self.set_join(True)
 
+                if self.mode_type == ModeType.KDM:
+                    self.request_update_log(f'succeed to join KDM mode room')
+                else:
+                    self.request_update_log(f'succeed to join SNNM mode room')
+
                 if self.worker_video_encode_packet is not None:
                     self.worker_video_encode_packet.request_send_key_frame()
+            else:
+                if self.mode_type == ModeType.KDM:
+                    self.request_update_log(f'failed to join KDM mode room. code:{join_response.code}')
+                else:
+                    self.request_update_log(f'failed to join SNNM mode room. code:{join_response.code}')
 
             return join_response
         elif self.join_button.text() == "Channel Leave":
             self.leave_room()
 
     def leave_room(self):
+        self.request_update_log(f'request to leave room.')
+
         self.set_join(False)
         self.join_button.setText("Channel Join")
         self.create_button.setDisabled(False)
@@ -347,7 +389,10 @@ class MainWindowClass(QMainWindow, form_class):
                                          peerId=self.peer_id,
                                          accessKey=self.join_session.accessKey))
 
-        if res.code is not api.ResponseCode.Success:
+        if res.code is api.ResponseCode.Success:
+            self.request_update_log(f'succeed to leave room.')
+        else:
+            self.request_update_log(f'failed to leave room. code:{res.code}')
             print("\nLeave fail.", res.code)
 
         self.join_session.clear_value()
@@ -397,6 +442,7 @@ class MainWindowClass(QMainWindow, form_class):
         self.room_information_ui.show()
 
     def modify_information_room(self):
+        self.request_update_log(f'request to modify information room')
         print("Modify Information Room")
         title = self.room_information_ui.lineEdit_title.text()
         description = self.room_information_ui.lineEdit_description.text()
@@ -447,8 +493,10 @@ class MainWindowClass(QMainWindow, form_class):
         print("\nModificationResponse:", modification_res)
 
         if modification_res.code is api.ResponseCode.Success:
+            self.request_update_log(f'succeed to modify information room')
             print("\nModification success.")
         else:
+            self.request_update_log(f'failed to modify information room')
             print("\nModification fail.", modification_res.code)
 
         self.room_information_ui.close()
@@ -616,6 +664,8 @@ class MainWindowClass(QMainWindow, form_class):
             self.worker_speaker_decode_packet.update_user(p_peer_data, p_leave_flag)
 
         if p_leave_flag is True:
+            self.request_update_log(f'leaved user. peerId:{p_peer_data.peer_id}')
+
             if self.join_peer is not None:
                 for i in self.join_peer:
                     if p_peer_data.peer_id == i.peer_id:
@@ -630,6 +680,7 @@ class MainWindowClass(QMainWindow, form_class):
                         add_user = False
 
             if add_user is True:
+                self.request_update_log(f'joined user. peerId:{p_peer_data.peer_id}')
                 self.join_peer.append(p_peer_data)
 
                 if self.worker_video_encode_packet is not None:
@@ -655,12 +706,13 @@ class MainWindowClass(QMainWindow, form_class):
                                             sourceList=session_change.sourceList,
                                             channelList=session_change.channelList)
         elif change.notificationType is api.NotificationType.SessionTerminationNotification:
+            self.request_update_log(f'received session termination')
+
             session_termination: api.SessionTerminationNotification = change
             print(f"SessionTerminationNotification received. {session_termination}")
             print(f"Terminate session is {session_termination.overlayId}")
-            if self.join_session.overlayId == session_termination.overlayId:
-                self.leave_room()
-                self.remove_room()
+            self.leave_room()
+            self.remove_room()
         elif change.notificationType is api.NotificationType.PeerChangeNotification:
             peer_change: api.PeerChangeNotification = change
             print(f"PeerChangeNotification received. {peer_change}")
@@ -670,7 +722,7 @@ class MainWindowClass(QMainWindow, form_class):
             if self.join_session.overlayId == peer_change.overlayId:
                 update_peer_data: PeerData = PeerData(peer_id=peerId, display_name=peer_change.displayName)
                 self.update_user(update_peer_data, peer_change.leave)
-            self.update_user_list()
+                self.update_user_list()
         elif change.notificationType is api.NotificationType.DataNotification:
             data: api.DataNotification = change
             if data.dataType == api.DataType.Data.value:
