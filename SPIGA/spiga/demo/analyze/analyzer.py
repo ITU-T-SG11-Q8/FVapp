@@ -21,11 +21,19 @@ class VideoAnalyzer:
     def grm_encode_process_frame(self, image):
         image = copy.copy(image)
         self.tracked_obj, features_tracker = self.tracker.grm_encode_process_frame(image, self.tracked_obj)
+
         if len(self.tracked_obj) > 0:
             self.tracked_obj, features_spiga = self.processor.grm_encode_process_frame(image, self.tracked_obj)
-        else:
+        if len(self.tracked_obj) == 0:
             features_spiga = None
+
         self.tracked_obj = self._add_attributes()
+        # if features_tracker is None:
+        #     print('features_tracker is None')
+        # elif features_spiga is None:
+        #     print('features_spiga is None')
+        # else:
+        #     print(f'####### features_tracker:{features_tracker} features_spiga:{features_spiga}')
         return features_tracker, features_spiga
 
     def grm_decode_process_frame(self, features_tracker, features_spiga):

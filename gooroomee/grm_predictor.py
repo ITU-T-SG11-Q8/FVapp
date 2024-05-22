@@ -201,10 +201,10 @@ class GRMPredictDetector:
         self.kp_source = None
 
     def set_source_image(self, source_image):
-        print('will detector set_source_image')
+        print('>>> WILL detector set_source_image')
         self.source = to_tensor(source_image).to(self.device)
         self.kp_source = self.kp_detector(self.source)
-        print('did detector set_source_image')
+        print('<<< DID detector set_source_image')
 
     def reset_frames(self):
         self.kp_driving_initial = None
@@ -246,7 +246,7 @@ class GRMPredictGenerator:
         self.kp_source = None
 
     def set_source_image(self, kp_detector, source_image):
-        print('will generator set_source_image')
+        print('>> WILL generator set_source_image')
         self.source = to_tensor(source_image).to(self.device)
         self.kp_source = kp_detector(self.source)
 
@@ -257,7 +257,7 @@ class GRMPredictGenerator:
             source_enc = self.source
 
         self.generator.encode_source(source_enc)
-        print('did generator set_source_image')
+        print('<<< DID generator set_source_image')
         return self.kp_source
 
     def generate(self, kp_norm):
