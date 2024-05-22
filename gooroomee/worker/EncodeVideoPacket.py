@@ -132,18 +132,17 @@ class EncodeVideoPacketWorker(GrmParentThread):
                         continue
 
                     if self.request_send_key_frame_flag is True:
-                        self.request_send_key_frame_flag = False
                         if self.get_grm_mode_type() == ModeType.KDM:
                             pass
                         else:
-                            if self.send_key_frame(frame) is False:
-                                self.request_send_key_frame_flag = True
+                            if self.send_key_frame(frame) is True:
+                                self.request_send_key_frame_flag = False
                             continue
 
                     video_bin_data = None
                     if self.request_recv_key_frame_flag is True:
-                        self.request_recv_key_frame_flag = False
                         video_bin_data = self.bin_wrapper.to_bin_request_key_frame()
+                        self.request_recv_key_frame_flag = False
 
                     if video_bin_data is None:
                         if self.get_grm_mode_type() == ModeType.KDM:

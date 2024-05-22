@@ -20,10 +20,11 @@ def get_current_time_ms():
 
 
 class RenderViewData:
-    def __init__(self, snnm_value, kdm_value, total_size):
+    def __init__(self, snnm_value, kdm_value, total_size, queue_count):
         self.snnm_value = snnm_value
         self.kdm_value = kdm_value
         self.total_size = total_size
+        self.queue_count = queue_count
 
 
 class RenderView(QThread):
@@ -45,6 +46,7 @@ class RenderView(QThread):
         self.time_update_stat = 0
         self.fps = 0
         self.bit_rate = 0
+        self.queue_count = 0
 
     def __del__(self):
         self.wait()
@@ -63,13 +65,14 @@ class RenderView(QThread):
                 snnm_value = render_view_data.snnm_value
                 kdm_value = render_view_data.kdm_value
                 total_size = render_view_data.total_size
+                queue_count = render_view_data.queue_count
 
                 if snnm_value is not None:
                     kp_norm = self.bin_wrapper.parse_kp_norm(snnm_value, self.predict_generator.device)
                     _frame = self.predict_generator.generate(kp_norm)
 
                     # cv2.imshow('client', out[..., ::-1])
-                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, total_size)
+                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, total_size, queue_count)
 
                 if kdm_value is not None:
                     shape, features_tracker, features_spiga = self.bin_wrapper.parse_features(kdm_value)
@@ -85,7 +88,7 @@ class RenderView(QThread):
                         return new_img
 
                     _frame = convert(_frame, 0, 255, np.uint8)
-                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, total_size)
+                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, total_size, queue_count)
 
             if self.time_update_stat == 0 or get_current_time_ms() - self.time_update_stat >= 1000:
                 self.time_update_stat = get_current_time_ms()
@@ -96,10 +99,10 @@ class RenderView(QThread):
                 bit_rate = float(self.bit_rate) * 8.0 / 1024.0
                 self.bit_rate = 0
 
-                stat = 'fps : %d\nbit_rate: %.2fkbps' % (fps, bit_rate)
+                stat = 'fps : %d\nbit_rate : %.2fkbps\nqueue_count : %d' % (fps, bit_rate, self.queue_count)
                 self.render_view_class.request_update_stat(stat)
 
-        time.sleep(0.1)
+        time.sleep(0.01)
 
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
@@ -184,7 +187,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                             new_avatar = key_frame.copy()
 
                             self.change_avatar(_peer_id, new_avatar)
-                            self.draw_render_video(_peer_id, new_avatar, len(_bin_data))
+                            self.draw_render_video(_peer_id, new_avatar, len(_bin_data), self.recv_video_queue.length())
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME_REQUEST:
                             print('received key_frame_request.')
@@ -197,7 +200,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
                                 if render_view.find_key_frame is True:
                                     render_view.request_recv_key_frame = 0
-                                    render_view_data = RenderViewData(_value, None, len(_bin_data))
+                                    render_view_data = RenderViewData(_value, None, len(_bin_data), self.recv_video_queue.length())
                                     render_view.recv_video_queue.put(render_view_data)
                                 else:
                                     if render_view.time_request_recv_key_frame == 0 or get_current_time_ms() - render_view.request_recv_key_frame >= 1000:
@@ -208,7 +211,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                             if self.render_views.get(_peer_id) is not None:
                                 render_view = self.render_views[_peer_id]
 
-                                render_view_data = RenderViewData(None, _value, len(_bin_data))
+                                render_view_data = RenderViewData(None, _value, len(_bin_data), self.recv_video_queue.length())
                                 render_view.recv_video_queue.put(render_view_data)
 
                 time.sleep(0.1)
@@ -221,7 +224,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.terminated = True
         # self.terminate()
 
-    def draw_render_video(self, peer_id, frame, total_size):
+    def draw_render_video(self, peer_id, frame, total_size, queue_count):
         if self.render_views.get(peer_id) is not None:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = frame.copy()
@@ -233,6 +236,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             render_view = self.render_views[peer_id]
             render_view.fps += 1
             render_view.bit_rate += total_size
+            render_view.queue_count = queue_count
 
             render_view_class = render_view.render_view_class
             pixmap_resized = pixmap.scaledToWidth(render_view_class.render_location.width())

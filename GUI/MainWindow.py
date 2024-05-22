@@ -2,7 +2,7 @@ import os
 
 import pyaudio
 from PyQt5 import QtCore, uic, QtGui
-from PyQt5.QtCore import QTimer, pyqtSlot
+from PyQt5.QtCore import QTimer, pyqtSlot, QThread
 from PyQt5.QtWidgets import QMainWindow, QFileDialog
 
 from GUI.RoomCreate import RoomCreateClass
@@ -74,10 +74,39 @@ def get_current_time_ms():
     return round(time.time() * 1000)
 
 
+class ThreadUpdateLog(QThread):
+    def __init__(self, main_window):
+        super().__init__()
+
+        self.main_window = main_window
+        self.running = False
+
+    def __del__(self):
+        self.wait()
+
+    def start_process(self):
+        self.running = True
+        self.start()
+
+    def stop_process(self):
+        self.running = False
+
+    def run(self):
+        time_start = get_current_time_ms()
+
+        while self.running:
+            if get_current_time_ms() - time_start >= 1000:
+                time_start = get_current_time_ms()
+                self.main_window.request_update_stat('')
+
+        time.sleep(0.01)
+
+
 class MainWindowClass(QMainWindow, form_class):
     mode_type: ModeType = ModeType.SNNM
     replace_image_frame = None
     update_log_signal = QtCore.pyqtSignal(str)
+    update_stat_signal = QtCore.pyqtSignal(str)
     log_str: str = ""
     log_index: int = 0
 
@@ -141,6 +170,10 @@ class MainWindowClass(QMainWindow, form_class):
         self.room_information_ui = RoomInformationClass(self.modify_information_room)
 
         self.update_log_signal.connect(self.update_log)
+        self.update_stat_signal.connect(self.update_stat)
+
+        self.thread_update_log = ThreadUpdateLog(self)
+        self.thread_update_log.start_process()
 
     @pyqtSlot(str)
     def update_log(self, log):
@@ -151,6 +184,26 @@ class MainWindowClass(QMainWindow, form_class):
         self.log_index += 1
 
         self.update_log_signal.emit(self.log_str)
+
+    @pyqtSlot(str)
+    def update_stat(self, log):
+        self.label_stat.setText(log)
+
+    def request_update_stat(self, stat):
+        video_capture_queue_count = 0
+        video_send_queue_count = 0
+        video_recv_queue_count = 0
+
+        if self.worker_video_encode_packet and self.worker_video_encode_packet.video_capture_queue:
+            video_capture_queue_count = self.worker_video_encode_packet.video_capture_queue.length()
+        if self.worker_grm_comm and self.worker_grm_comm.send_video_queue:
+            video_encode_and_send_queue_count = self.worker_grm_comm.send_video_queue.length()
+        if self.worker_grm_comm and self.worker_grm_comm.recv_video_queue:
+            video_recv_queue_count = self.worker_grm_comm.recv_video_queue.length()
+
+        stat = f'capture video queue count : {video_capture_queue_count}\nsend video encode and send queue count : {video_encode_and_send_queue_count}\nrecv video queue count : {video_recv_queue_count}'
+
+        self.update_stat_signal.emit(stat)
 
     def set_workers(self,
                     p_send_chat_queue,
@@ -540,6 +593,8 @@ class MainWindowClass(QMainWindow, form_class):
             self.worker_capture_frame.resume_process()
 
     def exit_button(self):
+        self.thread_update_log.stop_process()
+
         threads: List[GrmParentThread] = [
             self.worker_video_encode_packet,
             self.worker_video_decode_and_render_packet,

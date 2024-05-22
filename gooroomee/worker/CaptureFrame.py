@@ -82,7 +82,7 @@ class CaptureFrameWorker(GrmParentThread):
                     frame = resize(frame, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
                     if self.join_flag is True:
-                        if get_current_time_ms() - capture_time >= 200:
+                        if get_current_time_ms() - capture_time >= 50:
                             capture_time = get_current_time_ms()
 
                             capture_frame = frame.copy()
