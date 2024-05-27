@@ -1,10 +1,10 @@
 import time
 import threading
 
+import torch
 import hp2papi as api
 
 from GUI.MainWindow import MainWindowClass
-from gooroomee.bin_comm import BINComm
 from gooroomee.grm_defs import GrmParentThread, MediaQueueData
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_queue import GRMQueue
@@ -18,7 +18,6 @@ class GrmCommWorker(GrmParentThread):
                  p_send_chat_queue,
                  p_recv_audio_queue,
                  p_recv_video_queue,
-                 p_device_type,
                  p_set_connect):
         super().__init__()
         # self.main_windows: MainWindowClass = p_main_windows
@@ -36,7 +35,6 @@ class GrmCommWorker(GrmParentThread):
         self.kp_source = None
         self.avatar_kp = None
         self.bin_wrapper = BINWrapper()
-        self.device_type = p_device_type
         self.set_connect = p_set_connect
         self.stop_comm_request = False
         self.stop_comm_completed = False
@@ -181,8 +179,8 @@ class GrmCommWorker(GrmParentThread):
                             else:
                                 print("Chat SendData fail.", res.code)
 
-                time.sleep(0.1)
-            time.sleep(0.1)
+                time.sleep(0.001)
+            time.sleep(0.001)
 
         print("Stop GrmCommWorker")
         self.terminated = True

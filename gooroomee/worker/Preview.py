@@ -34,8 +34,8 @@ class PreviewWorker(GrmParentThread):
                         # pixmap_resized = pixmap.scaledToHeight(self.view_location.height())
                         if pixmap_resized is not None:
                             self.view_location.setPixmap(pixmap)
-                time.sleep(0.1)
-            time.sleep(0.1)
+                time.sleep(0.001)
+            time.sleep(0.001)
 
         print("Stop PreviewWorker")
         self.terminated = True

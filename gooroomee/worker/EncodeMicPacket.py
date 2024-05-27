@@ -42,7 +42,7 @@ class EncodeMicPacketWorker(GrmParentThread):
                                                           input_device_index=self.device_index,
                                                           frames_per_buffer=MIC_CHUNK)
                 if self.mic_stream is None:
-                    time.sleep(0.1)
+                    time.sleep(0.001)
                     # continue
                     break
 
@@ -52,7 +52,7 @@ class EncodeMicPacketWorker(GrmParentThread):
                     _frames = self.mic_stream.read(SPK_CHUNK, exception_on_overflow=False)
 
                     if _frames is None or self.join_flag is False:
-                        time.sleep(0.1)
+                        time.sleep(0.001)
                         continue
 
                     audio_bin_data = self.bin_wrapper.to_bin_audio_data(_frames)
@@ -63,16 +63,16 @@ class EncodeMicPacketWorker(GrmParentThread):
                                                                                 bindata=audio_bin_data)
                     self.send_grm_queue.put(audio_bin_data)
 
-                    time.sleep(0.1)
+                    time.sleep(0.001)
 
                 self.mic_stream.stop_stream()
                 self.mic_stream.close()
                 self.mic_interface.terminate()
                 QApplication.processEvents()
-                time.sleep(0.1)
+                time.sleep(0.001)
 
             QApplication.processEvents()
-            time.sleep(0.1)
+            time.sleep(0.001)
 
         print("Stop EncodeMicPacketWorker")
         self.terminated = True

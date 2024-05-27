@@ -1,6 +1,7 @@
 import time
 import cv2
 from PyQt5.QtCore import pyqtSlot, QThread
+import torch
 
 from GUI.MainWindow import MainWindowClass
 from GUI.RenderView import RenderViewClass
@@ -68,7 +69,7 @@ class RenderView(QThread):
                 queue_count = render_view_data.queue_count
 
                 if snnm_value is not None:
-                    kp_norm = self.bin_wrapper.parse_kp_norm(snnm_value, self.predict_generator.device)
+                    kp_norm = self.bin_wrapper.parse_kp_norm(snnm_value, self.device)
                     _frame = self.predict_generator.generate(kp_norm)
 
                     # cv2.imshow('client', out[..., ::-1])
@@ -102,7 +103,7 @@ class RenderView(QThread):
                 stat = 'fps : %d\nbit_rate : %.2fkbps\nqueue_count : %d' % (fps, bit_rate, self.queue_count)
                 self.render_view_class.request_update_stat(stat)
 
-        time.sleep(0.01)
+        time.sleep(0.001)
 
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
@@ -117,11 +118,9 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                  p_recv_video_queue,
                  p_config,
                  p_checkpoint,
-                 p_fa,
-                 p_device,
-                 p_predict_dectector,
                  p_spiga_wrapper):
         super().__init__()
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.main_window: MainWindowClass = p_main_window
         self.worker_video_encode_packet = p_worker_video_encode_packet
         self.width = 0
@@ -130,9 +129,6 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.recv_video_queue: GRMQueue = p_recv_video_queue
         self.config = p_config
         self.checkpoint = p_checkpoint
-        self.fa = p_fa
-        self.device = p_device
-        self.predict_dectector = p_predict_dectector
         self.spiga_wrapper = p_spiga_wrapper
         self.connect_flag: bool = False
         # self.lock = None
@@ -156,9 +152,9 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             return
 
         render_view = self.render_views[peer_id]
-        render_view.avatar_kp = GRMPredictor.get_frame_kp(self.fa, new_avatar)
+        render_view.avatar_kp = render_view.predict_generator.get_frame_kp(new_avatar)
         avatar = new_avatar
-        render_view.predict_generator.set_source_image(self.predict_dectector.kp_detector, avatar)
+        render_view.predict_generator.set_source_image(render_view.predict_generator.kp_detector, avatar)
         render_view.find_key_frame = True
 
     def run(self):
@@ -170,7 +166,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                     _bin_data = media_queue_data.bin_data
 
                     if self.join_flag is False or _bin_data is None:
-                        time.sleep(0.1)
+                        time.sleep(0.001)
                         continue
 
                     if len(_bin_data) > 0:
@@ -214,8 +210,8 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                                 render_view_data = RenderViewData(None, _value, len(_bin_data), self.recv_video_queue.length())
                                 render_view.recv_video_queue.put(render_view_data)
 
-                time.sleep(0.1)
-            time.sleep(0.1)
+                time.sleep(0.001)
+            time.sleep(0.001)
             # print('sleep')
 
             self.remove_peer_view_signal.emit('all')
@@ -258,8 +254,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                     # 'adapt_movement_scale': opt.adapt_scale,
                     # 'enc_downscale': opt.enc_downscale,
                     'config': self.config,
-                    'checkpoint': self.checkpoint,
-                    'device': self.device
+                    'checkpoint': self.checkpoint
                 }
 
                 print(f'>>> WILL create_avatarify_decoder')

@@ -104,7 +104,7 @@ class GRMPredictor:
             if self.kp_driving_initial is None:
                 self.kp_driving_initial = self.kp_detector(driving)
                 self.start_frame = driving_frame.copy()
-                self.start_frame_kp = GRMPredictor.get_frame_kp(self.fa, driving_frame)
+                self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source,
@@ -132,7 +132,7 @@ class GRMPredictor:
             if self.kp_driving_initial is None:
                 self.kp_driving_initial = self.kp_detector(driving)
                 self.start_frame = driving_frame.copy()
-                self.start_frame_kp = GRMPredictor.get_frame_kp(self.fa, driving_frame)
+                self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source,
@@ -157,9 +157,8 @@ class GRMPredictor:
 
             return out
 
-    @staticmethod
-    def get_frame_kp(fa, image):
-        kp_landmarks = fa.get_landmarks(image)
+    def get_frame_kp(self, image):
+        kp_landmarks = self.fa.get_landmarks(image)
         if kp_landmarks:
             kp_image = kp_landmarks[0]
             kp_image = GRMPredictor.normalize_alignment_kp(kp_image)
@@ -183,14 +182,15 @@ class GRMPredictor:
 
 
 class GRMPredictDetector:
-    def __init__(self, config, checkpoint, device = None, relative=True, adapt_movement_scale=True):
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, config, checkpoint, fa, relative=True, adapt_movement_scale=True):
+        self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.fa = fa
         self.relative = relative
         self.adapt_movement_scale = adapt_movement_scale
 
         self.kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
                                       **config['model_params']['common_params'])
-        self.kp_detector.to(device)
+        self.kp_detector.to(self.device)
         self.kp_detector.load_state_dict(checkpoint['kp_detector'])
         self.kp_detector.eval()
 
@@ -209,7 +209,7 @@ class GRMPredictDetector:
     def reset_frames(self):
         self.kp_driving_initial = None
 
-    def detect(self, fa, driving_frame):
+    def detect(self, driving_frame):
         assert self.kp_source is not None, "call set_source_image()"
 
         with torch.no_grad():
@@ -218,7 +218,7 @@ class GRMPredictDetector:
             if self.kp_driving_initial is None:
                 self.kp_driving_initial = self.kp_detector(driving)
                 self.start_frame = driving_frame.copy()
-                self.start_frame_kp = GRMPredictor.get_frame_kp(fa, driving_frame)
+                self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source,
@@ -230,15 +230,24 @@ class GRMPredictDetector:
 
             return kp_norm
 
+    def get_frame_kp(self, image):
+        kp_landmarks = self.fa.get_landmarks(image)
+        if kp_landmarks:
+            kp_image = kp_landmarks[0]
+            kp_image = GRMPredictor.normalize_alignment_kp(kp_image)
+            return kp_image
+        else:
+            return None
+
 
 class GRMPredictGenerator:
-    def __init__(self, config, checkpoint, device = None, enc_downscale=1):
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, config, checkpoint, enc_downscale=1):
+        self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         self.enc_downscale = enc_downscale
 
         self.generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
                                                  **config['model_params']['common_params'])
-        self.generator.to(device)
+        self.generator.to(self.device)
         self.generator.load_state_dict(checkpoint['generator'])
         self.generator.eval()
 

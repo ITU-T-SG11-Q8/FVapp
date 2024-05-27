@@ -33,7 +33,7 @@ class DecodeSpeakerPacketWorker(GrmParentThread):
 
                         self.write_speaker_stream(_peer_id, _bin_data)
 
-                    time.sleep(0.1)
+                    time.sleep(0.001)
 
                 for speaker_stream in self.speaker_streams:
                     speaker_stream.stop_stream()
@@ -45,10 +45,10 @@ class DecodeSpeakerPacketWorker(GrmParentThread):
                     self.speaker_interface = None
 
                 QApplication.processEvents()
-                time.sleep(0.1)
+                time.sleep(0.001)
 
             QApplication.processEvents()
-            time.sleep(0.1)
+            time.sleep(0.001)
 
         print("Stop DecodeSpeakerPacketWorker")
         self.terminated = True

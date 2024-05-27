@@ -53,12 +53,11 @@ worker_speaker_decode_packet: DecodeSpeakerPacketWorker = None
 worker_seq_num: int = 0
 worker_ssrc: int = 0
 
-device = None
 config = None
 checkpoint = None
-fa = None
 predict_dectector: GRMPredictDetector = None
 spiga_wrapper: SPIGAWrapper = None
+fa = None
 
 
 def get_worker_seq_num():
@@ -86,10 +85,8 @@ def all_start_worker():
     global worker_mic_encode_packet
     global worker_speaker_decode_packet
     global worker_grm_comm
-    global device
     global config
     global checkpoint
-    global fa
     global predict_dectector
     global spiga_wrapper
 
@@ -102,13 +99,12 @@ def all_start_worker():
                                                              get_worker_ssrc,
                                                              get_grm_mode_type,
                                                              predict_dectector,
-                                                             fa,
                                                              spiga_wrapper)
 
     if worker_capture_frame is not None:
         worker_capture_frame.start_process()
     else:
-        worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),
+        worker_capture_frame = CaptureFrameWorker(main_window,
                                                   worker_video_encode_packet,
                                                   video_capture_queue,
                                                   preview_video_queue)
@@ -120,12 +116,14 @@ def all_start_worker():
                                        preview_video_queue,
                                        main_window.preview)
 
+    '''
     if worker_mic_encode_packet is not None:
         worker_mic_encode_packet.start_process()
     else:
         worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
                                                          get_worker_seq_num,
                                                          get_worker_ssrc)
+    '''
 
     if worker_grm_comm is not None:
         worker_grm_comm.start_process()
@@ -136,7 +134,6 @@ def all_start_worker():
                                         send_chat_queue,
                                         recv_audio_queue,
                                         recv_video_queue,
-                                        device,
                                         set_connect)
 
     if worker_video_decode_and_render_packet is not None:
@@ -147,9 +144,6 @@ def all_start_worker():
                                                                                  recv_video_queue,
                                                                                  config,
                                                                                  checkpoint,
-                                                                                 fa,
-                                                                                 device,
-                                                                                 predict_dectector,
                                                                                  spiga_wrapper)
 
     if worker_speaker_decode_packet is not None:
@@ -245,7 +239,7 @@ if __name__ == '__main__':
     fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=device)
 
     if predict_dectector is None:
-        print(f'will create_avatarify_encoder')
+        print(f'>>> WILL create_avatarify_encoder')
         predict_dectector_args = {
             # 'config_path': opt.config,
             # 'checkpoint_path': opt.checkpoint,
@@ -254,32 +248,23 @@ if __name__ == '__main__':
             # 'enc_downscale': opt.enc_downscale
             'config': config,
             'checkpoint': checkpoint,
-            'device': device
+            'fa': fa
         }
         predict_dectector = GRMPredictDetector(
             **predict_dectector_args
         )
-        print(f'did create_avatarify_encoder')
+        print(f'<<< DID create_avatarify_encoder')
 
     if spiga_wrapper is None:
-        print(f'will create_spiga_wrapper')
-        spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
-        print(f'did create_spiga_wrapper')
+        print(f'>>> WILL create_spiga_wrapper')
+        # spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
+        print(f'<<< DID create_spiga_wrapper')
 
     main_window = MainWindowClass(get_worker_seq_num,
                                   get_worker_ssrc,
                                   set_join)
 
-    worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,     # VideoProcessWorker
-                                                         send_video_queue,
-                                                         get_worker_seq_num,
-                                                         get_worker_ssrc,
-                                                         get_grm_mode_type,
-                                                         predict_dectector,
-                                                         fa,
-                                                         spiga_wrapper)
-
-    worker_capture_frame = CaptureFrameWorker(main_window.comboBox_video_device.currentIndex(),  # WebcamWorker
+    worker_capture_frame = CaptureFrameWorker(main_window,  # WebcamWorker
                                               worker_video_encode_packet,
                                               video_capture_queue,
                                               preview_video_queue)
@@ -288,9 +273,19 @@ if __name__ == '__main__':
                                    preview_video_queue,
                                    main_window.preview)  # VideoViewWorker
 
-    # worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-    #                                                  get_worker_seq_num,
-    #                                                  get_worker_ssrc)
+    worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,     # VideoProcessWorker
+                                                         send_video_queue,
+                                                         get_worker_seq_num,
+                                                         get_worker_ssrc,
+                                                         get_grm_mode_type,
+                                                         predict_dectector,
+                                                         spiga_wrapper)
+
+    '''
+    worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
+                                                     get_worker_seq_num,
+                                                     get_worker_ssrc)
+    '''
 
     worker_grm_comm = GrmCommWorker(main_window,
                                     send_audio_queue,
@@ -298,7 +293,6 @@ if __name__ == '__main__':
                                     send_chat_queue,  # GrmCommWorker
                                     recv_audio_queue,
                                     recv_video_queue,
-                                    device,
                                     set_connect)
 
     worker_video_decode_and_render_packet = DecodeAndRenderVideoPacketWorker(main_window,
@@ -306,9 +300,6 @@ if __name__ == '__main__':
                                                                              recv_video_queue,
                                                                              config,
                                                                              checkpoint,
-                                                                             fa,
-                                                                             device,
-                                                                             predict_dectector,
                                                                              spiga_wrapper)  # VideoRecvWorker
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
