@@ -144,6 +144,7 @@ def all_start_worker():
                                                                                  recv_video_queue,
                                                                                  config,
                                                                                  checkpoint,
+                                                                                 predict_dectector,
                                                                                  spiga_wrapper)
 
     if worker_speaker_decode_packet is not None:
@@ -300,6 +301,7 @@ if __name__ == '__main__':
                                                                              recv_video_queue,
                                                                              config,
                                                                              checkpoint,
+                                                                             predict_dectector,
                                                                              spiga_wrapper)  # VideoRecvWorker
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)

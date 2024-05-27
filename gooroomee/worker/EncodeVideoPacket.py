@@ -154,6 +154,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
 
                     if self.request_send_key_frame_flag is True:
                         if self.get_grm_mode_type() == ModeType.KDM:
+                            self.request_send_key_frame_flag = False
                             pass
                         else:
                             if self.send_key_frame(frame) is True:

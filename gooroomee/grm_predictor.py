@@ -241,8 +241,9 @@ class GRMPredictDetector:
 
 
 class GRMPredictGenerator:
-    def __init__(self, config, checkpoint, enc_downscale=1):
+    def __init__(self, config, checkpoint, fa, enc_downscale=1):
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.fa = fa
         self.enc_downscale = enc_downscale
 
         self.generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
@@ -281,3 +282,12 @@ class GRMPredictGenerator:
             out = (np.clip(out, 0, 1) * 255).astype(np.uint8)
 
             return out
+
+    def get_frame_kp(self, image):
+        kp_landmarks = self.fa.get_landmarks(image)
+        if kp_landmarks:
+            kp_image = kp_landmarks[0]
+            kp_image = GRMPredictor.normalize_alignment_kp(kp_image)
+            return kp_image
+        else:
+            return None

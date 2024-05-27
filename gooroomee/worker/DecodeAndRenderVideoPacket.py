@@ -118,6 +118,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                  p_recv_video_queue,
                  p_config,
                  p_checkpoint,
+                 p_predict_dectector,
                  p_spiga_wrapper):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -129,6 +130,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.recv_video_queue: GRMQueue = p_recv_video_queue
         self.config = p_config
         self.checkpoint = p_checkpoint
+        self.predict_dectector = p_predict_dectector
         self.spiga_wrapper = p_spiga_wrapper
         self.connect_flag: bool = False
         # self.lock = None
@@ -152,9 +154,9 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             return
 
         render_view = self.render_views[peer_id]
-        render_view.avatar_kp = render_view.predict_generator.get_frame_kp(new_avatar)
+        render_view.avatar_kp = self.predict_dectector.get_frame_kp(new_avatar)
         avatar = new_avatar
-        render_view.predict_generator.set_source_image(render_view.predict_generator.kp_detector, avatar)
+        render_view.predict_generator.set_source_image(self.predict_dectector.kp_detector, avatar)
         render_view.find_key_frame = True
 
     def run(self):
@@ -254,7 +256,8 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                     # 'adapt_movement_scale': opt.adapt_scale,
                     # 'enc_downscale': opt.enc_downscale,
                     'config': self.config,
-                    'checkpoint': self.checkpoint
+                    'checkpoint': self.checkpoint,
+                    'fa': self.fa
                 }
 
                 print(f'>>> WILL create_avatarify_decoder')
