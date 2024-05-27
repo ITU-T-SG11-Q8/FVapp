@@ -119,7 +119,8 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                  p_config,
                  p_checkpoint,
                  p_predict_dectector,
-                 p_spiga_wrapper):
+                 p_spiga_wrapper,
+                 p_fa):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.main_window: MainWindowClass = p_main_window
@@ -131,6 +132,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.config = p_config
         self.checkpoint = p_checkpoint
         self.predict_dectector = p_predict_dectector
+        self.fa = p_fa
         self.spiga_wrapper = p_spiga_wrapper
         self.connect_flag: bool = False
         # self.lock = None

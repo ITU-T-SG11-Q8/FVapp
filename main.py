@@ -89,6 +89,7 @@ def all_start_worker():
     global checkpoint
     global predict_dectector
     global spiga_wrapper
+    global fa
 
     if worker_video_encode_packet is not None:
         worker_video_encode_packet.start_process()
@@ -145,7 +146,8 @@ def all_start_worker():
                                                                                  config,
                                                                                  checkpoint,
                                                                                  predict_dectector,
-                                                                                 spiga_wrapper)
+                                                                                 spiga_wrapper,
+                                                                                 fa)
 
     if worker_speaker_decode_packet is not None:
         worker_speaker_decode_packet.start_process()
@@ -302,7 +304,8 @@ if __name__ == '__main__':
                                                                              config,
                                                                              checkpoint,
                                                                              predict_dectector,
-                                                                             spiga_wrapper)  # VideoRecvWorker
+                                                                             spiga_wrapper,
+                                                                             fa)  # VideoRecvWorker
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
