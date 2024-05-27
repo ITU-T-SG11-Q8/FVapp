@@ -32,6 +32,7 @@ class RenderView(QThread):
     def __init__(self, worker_video_decode_and_render_packet, peer_id, predict_generator, spiga_wrapper, render_view_class):
         super().__init__()
 
+        self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         self.worker_video_decode_and_render_packet = worker_video_decode_and_render_packet
         self.peer_id = peer_id
         self.predict_generator = predict_generator
