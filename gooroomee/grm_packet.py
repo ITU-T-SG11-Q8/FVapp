@@ -208,12 +208,16 @@ class BINWrapper:
             _type, length, _value, bin_data = self.from_tlv(bin_data)
             _value = np.frombuffer(_value, dtype=np.float32)
 
-            if _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY_KP_NORM:
-                _value = _value.reshape(1, 10, 2)
-                value = torch.as_tensor(_value).to(device)
-            elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY_JACOBIAN:
-                _value = _value.reshape(1, 10, 2, 2)
-                jacobian = torch.as_tensor(_value).to(device)
+            try:
+                if _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY_KP_NORM:
+                    _value = _value.reshape(1, 10, 2)
+                    value = torch.as_tensor(_value).to(device)
+                elif _type == TYPE_INDEX.TYPE_VIDEO_AVATARIFY_JACOBIAN:
+                    _value = _value.reshape(1, 10, 2, 2)
+                    jacobian = torch.as_tensor(_value).to(device)
+            except Exception as e:
+                print(f'{e}')
+                return None
 
         torch_data = {'value': value, 'jacobian': jacobian}
         return torch_data

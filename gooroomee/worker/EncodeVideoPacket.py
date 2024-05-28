@@ -87,7 +87,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
         print(f"CaptureFrameWorker connect:{self.connect_flag}")
 
     def request_send_key_frame(self):
-        print("request send_key_frame")
+        print("request_send_key_frame")
         self.request_send_key_frame_flag = True
 
     def request_recv_key_frame(self):
@@ -159,6 +159,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                         else:
                             if self.send_key_frame(frame) is True:
                                 self.request_send_key_frame_flag = False
+                                self.video_capture_queue.clear()
                             continue
 
                     video_bin_data = None
