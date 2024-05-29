@@ -15,12 +15,14 @@ def to_tensor(a):
 
 def normalize_kp(kp_source, kp_driving, kp_driving_initial, adapt_movement_scale=False,
                  use_relative_movement=False, use_relative_jacobian=False):
+    adapt_movement_scale = 1
     if adapt_movement_scale:
-        source_area = ConvexHull(kp_source['value'][0].data.cpu().numpy()).volume
-        driving_area = ConvexHull(kp_driving_initial['value'][0].data.cpu().numpy()).volume
-        adapt_movement_scale = np.sqrt(source_area) / np.sqrt(driving_area)
-    else:
-        adapt_movement_scale = 1
+        try:
+            source_area = ConvexHull(kp_source['value'][0].data.cpu().numpy()).volume
+            driving_area = ConvexHull(kp_driving_initial['value'][0].data.cpu().numpy()).volume
+            adapt_movement_scale = np.sqrt(source_area) / np.sqrt(driving_area)
+        except Exception as e:
+            print(f'{e}')
 
     kp_new = {k: v for k, v in kp_driving.items()}
 
@@ -204,7 +206,7 @@ class GRMPredictDetector:
         print('>>> WILL detector set_source_image')
         self.source = to_tensor(source_image).to(self.device)
         self.kp_source = self.kp_detector(self.source)
-        print('<<< DID detector set_source_image')
+        print('<<<     DID detector set_source_image')
 
     def reset_frames(self):
         self.kp_driving_initial = None
@@ -267,7 +269,7 @@ class GRMPredictGenerator:
             source_enc = self.source
 
         self.generator.encode_source(source_enc)
-        print('<<< DID generator set_source_image')
+        print('<<<     DID generator set_source_image')
         return self.kp_source
 
     def generate(self, kp_norm):
@@ -291,3 +293,76 @@ class GRMPredictGenerator:
             return kp_image
         else:
             return None
+
+
+def mse(imageA, imageB):
+    # the 'Mean Squared Error' between the two images is the
+    # sum of the squared difference between the two images;
+    # NOTE: the two images must have the same dimension
+    err = np.sum((imageA.astype("float") - imageB.astype("float")) ** 2)
+    err /= float(imageA.shape[0] * imageA.shape[1])
+
+    # return the MSE, the lower the error, the more "similar"
+    # the two images are
+    return err
+
+
+def compare_images(imageA, imageB):
+    # compute the mean squared error and structural similarity
+    # index for the images
+    m = mse(imageA, imageB)
+    # s = ssim(imageA, imageB)
+    return True if m == 0.0 else False  # and s == 1.0
+
+
+class GRMPredictDetectorWrapper:
+    def __init__(self, config, checkpoint, fa, relative=True, adapt_movement_scale=True):
+        self.predict_dectector = GRMPredictDetector(config, checkpoint, fa, relative, adapt_movement_scale)
+        self.avatar_kp = None
+        self.avatar = None
+
+    def detector_change_avatar(self, new_avatar):
+        if self.avatar is not None and compare_images(self.avatar, new_avatar) is True:
+            print('detector_change_avatar, same avatar entered.')
+        else:
+            self.avatar = new_avatar
+
+            print(f'>>> WILL detector_change_avatar, resolution:{self.avatar.shape[0]} x {self.avatar.shape[1]}')
+            self.avatar_kp = self.predict_dectector.get_frame_kp(self.avatar)
+            self.predict_dectector.set_source_image(self.avatar)
+            print(f'<<<     DID detector_change_avatar')
+        self.predict_dectector.reset_frames()
+
+    def detect(self, frame):
+        if self.predict_dectector is not None:
+            return self.predict_dectector.detect(frame)
+        return None
+
+    def get_frame_kp(self, image):
+        if self.predict_dectector is not None:
+            return self.predict_dectector.get_frame_kp(image)
+        return None
+
+
+class GRMPredictGeneratorWrapper:
+    def __init__(self, predict_dectector, config, checkpoint, fa, enc_downscale=1):
+        self.predict_dectector = predict_dectector
+        self.predict_generator = GRMPredictGenerator(config, checkpoint, fa, enc_downscale)
+        self.avatar = None
+        self.avatar_kp = None
+
+    def generator_change_avatar(self, new_avatar):
+        if self.avatar is not None and compare_images(self.avatar, new_avatar) is True:
+            print('detector_change_avatar, same avatar entered.')
+        else:
+            self.avatar = new_avatar
+
+            print(f'>>> WILL generator_change_avatar. resolution:{self.avatar.shape[0]} x {self.avatar.shape[1]}')
+            self.avatar_kp = self.predict_dectector.get_frame_kp(self.avatar)
+            self.predict_generator.set_source_image(self.predict_dectector.kp_detector, self.avatar)
+            print(f'<<<     DID generator_change_avatar')
+
+    def generate(self, frame):
+        if self.predict_generator is not None:
+            return self.predict_generator.generate(frame)
+        return None

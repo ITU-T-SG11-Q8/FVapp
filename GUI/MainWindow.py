@@ -180,7 +180,8 @@ class MainWindowClass(QMainWindow, form_class):
                     p_worker_video_encode_packet,
                     p_worker_video_decode_and_render_packet,
                     p_worker_speaker_decode_packet,
-                    p_worker_grm_comm):
+                    p_worker_grm_comm,
+                    p_replace_image):
         self.send_chat_queue = p_send_chat_queue                                                # GRMQueue
         self.worker_capture_frame = p_worker_capture_frame                                      # CaptureFrameWorker
         self.worker_video_encode_packet = p_worker_video_encode_packet                          # EncodeVideoPacketWorker
@@ -191,6 +192,12 @@ class MainWindowClass(QMainWindow, form_class):
         if self.worker_video_encode_packet is not None:
             self.button_send_keyframe.clicked.connect(self.worker_video_encode_packet.request_send_key_frame)
             self.button_request_keyframe.clicked.connect(self.worker_video_encode_packet.request_recv_key_frame)
+
+            if p_replace_image is not None:
+                self.checkBox_use_replace_image.setChecked(True)
+
+                if self.apply_replace_image(p_replace_image) is False:
+                    self.checkBox_use_replace_image.setChecked(False)
 
     def timeout_key_frame(self):
         if self.worker_video_encode_packet is not None:
@@ -385,8 +392,8 @@ class MainWindowClass(QMainWindow, form_class):
                 else:
                     self.request_update_log(f'succeed to join SNNM mode room')
 
-                if self.worker_video_encode_packet is not None:
-                    self.worker_video_encode_packet.request_send_key_frame()
+                # if self.worker_video_encode_packet is not None:
+                #     self.worker_video_encode_packet.request_send_key_frame()
             else:
                 if self.mode_type == ModeType.KDM:
                     self.request_update_log(f'failed to join KDM mode room. code:{join_response.code}')
@@ -598,15 +605,9 @@ class MainWindowClass(QMainWindow, form_class):
             self.button_search_replace_image.setDisabled(True)
             self.worker_video_encode_packet.set_replace_image_frame(None)
 
-    def search_replace_image(self):
-        replace_image = QFileDialog.getOpenFileName(self, filter='*.jpg')
-        if replace_image is None or len(replace_image[0]) == 0:
-            return
-
-        self.lineEdit_search_replace_image.setText(replace_image[0])
-
+    def apply_replace_image(self, replace_image):
         try:
-            with open(replace_image[0], "rb") as f:
+            with open(replace_image, "rb") as f:
                 bytes_read = f.read()
 
                 frame = np.frombuffer(bytes_read, dtype=np.uint8)
@@ -630,17 +631,30 @@ class MainWindowClass(QMainWindow, form_class):
 
                 self.replace_image_frame = img
 
-                if self.checkBox_use_replace_image.isChecked() is True and self.worker_video_encode_packet is not None:
-                    self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
-
                 h, w, c = self.replace_image_frame.shape
                 q_img = QtGui.QImage(self.replace_image_frame.data, w, h, w * c, QtGui.QImage.Format_RGB888)
                 pixmap = QtGui.QPixmap.fromImage(q_img)
                 pixmap_resized = pixmap.scaledToWidth(self.replace_image_view.width())
                 if pixmap_resized is not None:
                     self.replace_image_view.setPixmap(pixmap)
+                    self.lineEdit_search_replace_image.setText(replace_image)
+
+                    if self.checkBox_use_replace_image.isChecked() is True and \
+                            self.worker_video_encode_packet is not None:
+                        self.worker_video_encode_packet.set_replace_image_frame(self.replace_image_frame)
+
+                    return True
         except Exception as err:
             print(err)
+
+        return False
+
+    def search_replace_image(self):
+        replace_image = QFileDialog.getOpenFileName(self, filter='*.jpg')
+        if replace_image is None or len(replace_image[0]) == 0:
+            return
+
+        self.apply_replace_image(replace_image[0])
 
     def remove_room(self):
         print(f"overlayId:{self.join_session.creationOverlayId}, ownerId:{self.join_session.creationOwnerId}, "

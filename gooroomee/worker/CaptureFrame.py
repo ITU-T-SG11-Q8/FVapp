@@ -95,8 +95,8 @@ class CaptureFrameWorker(GrmParentThread):
                         captured_time = get_current_time_ms()
                     elapsed_time = get_current_time_ms() - captured_time
                     captured_time = get_current_time_ms()
+                    time.sleep(0.01)
 
-                    time.sleep(0.001)
                     capture_fps = 20
                     delay_time = round(1000 / capture_fps)
                     if delay_time > elapsed_time:

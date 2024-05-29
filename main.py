@@ -11,13 +11,15 @@ from PyQt5.QtWidgets import QApplication
 import torch
 import hp2papi as api
 import random
+import glob
+import cv2
 
 import yaml
 import face_alignment
 
 from gooroomee.grm_defs import ModeType, IMAGE_SIZE
 from gooroomee.grm_queue import GRMQueue
-from gooroomee.grm_predictor import GRMPredictDetector
+from gooroomee.grm_predictor import GRMPredictDetectorWrapper, GRMPredictGeneratorWrapper
 from gooroomee.worker.CaptureFrame import CaptureFrameWorker
 from gooroomee.worker.DecodeAndRenderVideoPacket import DecodeAndRenderVideoPacketWorker
 from gooroomee.worker.DecodeSpeakerPacket import DecodeSpeakerPacketWorker
@@ -55,9 +57,11 @@ worker_ssrc: int = 0
 
 config = None
 checkpoint = None
-predict_dectector: GRMPredictDetector = None
+predict_dectector_wrapper: GRMPredictDetectorWrapper = None
+reserved_predict_generator_wrappers = []
 spiga_wrapper: SPIGAWrapper = None
 fa = None
+avatar = None
 
 
 def get_worker_seq_num():
@@ -87,72 +91,20 @@ def all_start_worker():
     global worker_grm_comm
     global config
     global checkpoint
-    global predict_dectector
     global spiga_wrapper
     global fa
 
-    if worker_video_encode_packet is not None:
-        worker_video_encode_packet.start_process()
-    else:
-        worker_video_encode_packet = EncodeVideoPacketWorker(video_capture_queue,
-                                                             send_video_queue,
-                                                             get_worker_seq_num,
-                                                             get_worker_ssrc,
-                                                             get_grm_mode_type,
-                                                             predict_dectector,
-                                                             spiga_wrapper)
+    workers = [ worker_video_encode_packet,
+                worker_capture_frame,
+                worker_preview,
+                worker_mic_encode_packet,
+                worker_grm_comm,
+                worker_video_decode_and_render_packet,
+                worker_speaker_decode_packet ]
 
-    if worker_capture_frame is not None:
-        worker_capture_frame.start_process()
-    else:
-        worker_capture_frame = CaptureFrameWorker(main_window,
-                                                  worker_video_encode_packet,
-                                                  video_capture_queue,
-                                                  preview_video_queue)
-
-    if worker_preview is not None:
-        worker_preview.start_process()
-    else:
-        worker_preview = PreviewWorker("preview",
-                                       preview_video_queue,
-                                       main_window.preview)
-
-    '''
-    if worker_mic_encode_packet is not None:
-        worker_mic_encode_packet.start_process()
-    else:
-        worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
-                                                         get_worker_seq_num,
-                                                         get_worker_ssrc)
-    '''
-
-    if worker_grm_comm is not None:
-        worker_grm_comm.start_process()
-    else:
-        worker_grm_comm = GrmCommWorker(main_window,              # GrmCommWorker
-                                        send_audio_queue,
-                                        send_video_queue,
-                                        send_chat_queue,
-                                        recv_audio_queue,
-                                        recv_video_queue,
-                                        set_connect)
-
-    if worker_video_decode_and_render_packet is not None:
-        worker_video_decode_and_render_packet.start_process()
-    else:
-        worker_video_decode_and_render_packet = DecodeAndRenderVideoPacketWorker(main_window,
-                                                                                 worker_video_encode_packet,
-                                                                                 recv_video_queue,
-                                                                                 config,
-                                                                                 checkpoint,
-                                                                                 predict_dectector,
-                                                                                 spiga_wrapper,
-                                                                                 fa)
-
-    if worker_speaker_decode_packet is not None:
-        worker_speaker_decode_packet.start_process()
-    else:
-        worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
+    for worker in workers:
+        if worker is not None:
+            worker.start_process()
 
 
 def all_stop_worker():
@@ -164,20 +116,17 @@ def all_stop_worker():
     global worker_speaker_decode_packet
     global worker_grm_comm
 
-    if worker_video_decode_and_render_packet is not None:
-        worker_video_decode_and_render_packet.pause_process()
-    if worker_video_encode_packet is not None:
-        worker_video_encode_packet.pause_process()
-    if worker_capture_frame is not None:
-        worker_capture_frame.pause_process()
-    if worker_preview is not None:
-        worker_preview.pause_process()
-    if worker_mic_encode_packet is not None:
-        worker_mic_encode_packet.pause_process()
-    if worker_speaker_decode_packet is not None:
-        worker_speaker_decode_packet.pause_process()
-    if worker_grm_comm is not None:
-        worker_grm_comm.pause_process()
+    workers = [worker_video_encode_packet,
+               worker_capture_frame,
+               worker_preview,
+               worker_mic_encode_packet,
+               worker_grm_comm,
+               worker_video_decode_and_render_packet,
+               worker_speaker_decode_packet]
+
+    for worker in workers:
+        if worker is not None:
+            worker.pause_process()
 
 
 def set_join(join_flag: bool):
@@ -196,20 +145,17 @@ def set_join(join_flag: bool):
     worker_seq_num = 0
     worker_ssrc = random.random()
 
-    if worker_capture_frame is not None:
-        worker_capture_frame.set_join(join_flag)
-    if worker_preview is not None:
-        worker_preview.set_join(join_flag)
-    if worker_video_encode_packet is not None:
-        worker_video_encode_packet.set_join(join_flag)
-    if worker_mic_encode_packet is not None:
-        worker_mic_encode_packet.set_join(join_flag)
-    if worker_grm_comm is not None:
-        worker_grm_comm.set_join(join_flag)
-    if worker_video_decode_and_render_packet is not None:
-        worker_video_decode_and_render_packet.set_join(join_flag)
-    if worker_speaker_decode_packet is not None:
-        worker_speaker_decode_packet.set_join(join_flag)
+    workers = [worker_video_encode_packet,
+               worker_capture_frame,
+               worker_preview,
+               worker_mic_encode_packet,
+               worker_grm_comm,
+               worker_video_decode_and_render_packet,
+               worker_speaker_decode_packet]
+
+    for worker in workers:
+        if worker is not None:
+            worker.set_join(join_flag)
 
 
 def set_connect(connect_flag: bool):
@@ -217,6 +163,90 @@ def set_connect(connect_flag: bool):
     # self.worker_capture_frame.set_connect(connect_flag)
     worker_video_encode_packet.set_connect(connect_flag)
     worker_mic_encode_packet.set_connect(connect_flag)
+
+
+def load_images():
+    avatars = []
+    filenames = []
+    images_list = sorted(glob.glob('avatars/*'))
+    for i, f in enumerate(images_list):
+        if f.endswith('.jpg') or f.endswith('.jpeg') or f.endswith('.png'):
+            img = cv2.imread(f)
+            if img is None:
+                continue
+
+            if img.ndim == 2:
+                img = np.tile(img[..., None], [1, 1, 3])
+            img = img[..., :3][..., ::-1]
+            img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
+            avatars.append(img)
+            filenames.append(f)
+    return avatars, filenames
+
+
+def get_replace_image_frame(replace_image):
+    try:
+        with open(replace_image, "rb") as f:
+            bytes_read = f.read()
+
+            frame = np.frombuffer(bytes_read, dtype=np.uint8)
+            frame = cv2.imdecode(frame, flags=1)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            img = frame
+            w, h = frame.shape[:2]
+            if w != IMAGE_SIZE or h != IMAGE_SIZE:
+                x = 0
+                y = 0
+                if w > h:
+                    x = int((w - h) / 2)
+                    w = h
+                elif h > w:
+                    y = int((h - w) / 2)
+                    h = w
+
+                cropped_img = frame[x: x + w, y: y + h]
+                img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
+            return img
+    except Exception as err:
+        print(err)
+
+    return None
+
+
+def create_predict_generator_wrapper():
+    predict_generator_args = {
+        # 'config_path': opt.config,
+        # 'checkpoint_path': opt.checkpoint,
+        # 'relative': opt.relative,
+        # 'adapt_movement_scale': opt.adapt_scale,
+        # 'enc_downscale': opt.enc_downscale,
+        'predict_dectector':predict_dectector_wrapper.predict_dectector,
+        'config': config,
+        'checkpoint': checkpoint,
+        'fa': fa
+    }
+
+    print(f'>>> WILL create_avatarify_generator')
+    predict_generator_wrapper = GRMPredictGeneratorWrapper(
+        **predict_generator_args
+    )
+    if avatar is not None:
+        predict_generator_wrapper.generator_change_avatar(avatar)
+    print(f'<<<     DID create_avatarify_generator')
+
+    return predict_generator_wrapper
+
+
+def reserve_predict_generator_wrapper():
+    if len(reserved_predict_generator_wrappers) > 0:
+        return reserved_predict_generator_wrappers.pop()
+    else:
+        return create_predict_generator_wrapper()
+
+
+def release_predict_generator_wrapper(predict_generator_wrapper):
+    reserved_predict_generator_wrappers.append(predict_generator_wrapper)
 
 
 if _platform == 'darwin':
@@ -235,14 +265,20 @@ if __name__ == '__main__':
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
 
+    replace_image = None
+    _, filenames = load_images()
+    if filenames is not None and len(filenames) > 0:
+        replace_image = filenames[0]
+        avatar = get_replace_image_frame(replace_image)
+
     with open(opt.config) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     checkpoint = torch.load(opt.checkpoint, map_location=device)
     fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=device)
 
-    if predict_dectector is None:
-        print(f'>>> WILL create_avatarify_encoder')
+    if predict_dectector_wrapper is None:
+        print(f'>>> WILL create_avatarify_detector')
         predict_dectector_args = {
             # 'config_path': opt.config,
             # 'checkpoint_path': opt.checkpoint,
@@ -253,15 +289,22 @@ if __name__ == '__main__':
             'checkpoint': checkpoint,
             'fa': fa
         }
-        predict_dectector = GRMPredictDetector(
+        predict_dectector_wrapper = GRMPredictDetectorWrapper(
             **predict_dectector_args
         )
-        print(f'<<< DID create_avatarify_encoder')
+
+        if avatar is not None:
+            predict_dectector_wrapper.detector_change_avatar(avatar)
+        print(f'<<<     DID create_avatarify_detector')
+
+    for i in range(2):
+        predict_generator_wrapper = create_predict_generator_wrapper()
+        reserved_predict_generator_wrappers.append(predict_generator_wrapper)
 
     if spiga_wrapper is None:
         print(f'>>> WILL create_spiga_wrapper')
         # spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
-        print(f'<<< DID create_spiga_wrapper')
+        print(f'<<<     DID create_spiga_wrapper')
 
     main_window = MainWindowClass(get_worker_seq_num,
                                   get_worker_ssrc,
@@ -281,7 +324,7 @@ if __name__ == '__main__':
                                                          get_worker_seq_num,
                                                          get_worker_ssrc,
                                                          get_grm_mode_type,
-                                                         predict_dectector,
+                                                         predict_dectector_wrapper,
                                                          spiga_wrapper)
 
     '''
@@ -303,9 +346,10 @@ if __name__ == '__main__':
                                                                              recv_video_queue,
                                                                              config,
                                                                              checkpoint,
-                                                                             predict_dectector,
                                                                              spiga_wrapper,
-                                                                             fa)  # VideoRecvWorker
+                                                                             fa,
+                                                                             reserve_predict_generator_wrapper,
+                                                                             release_predict_generator_wrapper)  # VideoRecvWorker
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
@@ -314,7 +358,8 @@ if __name__ == '__main__':
                             worker_video_encode_packet,
                             worker_video_decode_and_render_packet,
                             worker_speaker_decode_packet,
-                            worker_grm_comm)
+                            worker_grm_comm,
+                            replace_image)
     main_window.room_information_button.setDisabled(True)
     main_window.show()
 
