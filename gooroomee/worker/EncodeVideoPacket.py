@@ -5,7 +5,6 @@ from afy.utils import crop, resize
 
 from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE, ModeType
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
-from gooroomee.grm_predictor import GRMPredictor
 from gooroomee.grm_queue import GRMQueue
 
 
@@ -14,6 +13,7 @@ def get_current_time_ms():
 
 
 class EncodeVideoPacketWorker(GrmParentThread):
+    avatar = None
     replace_image_frame = None
     frame_proportion = 0.9
     frame_offset_x = 0
@@ -25,8 +25,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                  p_get_worker_seq_num,
                  p_get_worker_ssrc,
                  p_get_grm_mode_type,
-                 p_predict_dectector,
-                 p_fa,
+                 p_predict_dectector_wrapper,
                  p_spiga_wrapper):
         super().__init__()
         self.width = 0
@@ -38,26 +37,20 @@ class EncodeVideoPacketWorker(GrmParentThread):
         self.get_worker_seq_num = p_get_worker_seq_num
         self.get_worker_ssrc = p_get_worker_ssrc
         self.get_grm_mode_type = p_get_grm_mode_type
-        self.predict_dectector = p_predict_dectector
-        self.fa = p_fa
+        self.predict_dectector_wrapper = p_predict_dectector_wrapper
         self.spiga_wrapper = p_spiga_wrapper
         self.request_send_key_frame_flag: bool = False
         self.request_recv_key_frame_flag: bool = False
         self.connect_flag: bool = False
-        self.avatar_kp = None
-
-    def encoder_change_avatar(self, new_avatar):
-        print(f'encoder_change_avatar, resolution:{new_avatar.shape[0]} x {new_avatar.shape[1]}')
-        self.avatar_kp = GRMPredictor.get_frame_kp(self.fa, new_avatar)
-        avatar = new_avatar
-        self.predict_dectector.set_source_image(avatar)
-        self.predict_dectector.reset_frames()
 
     def set_replace_image_frame(self, frame):
         if frame is None:
             self.replace_image_frame = None
+            # print('set_replace_image_frame. frame is None')
         else:
             self.replace_image_frame = frame.copy()
+            # print('set_replace_image_frame. frame is not None')
+
         self.request_send_key_frame()
 
     def set_connect(self, p_connect_flag: bool):
@@ -65,22 +58,24 @@ class EncodeVideoPacketWorker(GrmParentThread):
         print(f"CaptureFrameWorker connect:{self.connect_flag}")
 
     def request_send_key_frame(self):
-        print("request send_key_frame")
+        # print("request_send_key_frame")
         self.request_send_key_frame_flag = True
 
     def request_recv_key_frame(self):
-        print("request recv_key_frame")
+        # print("request recv_key_frame")
         self.request_recv_key_frame_flag = True
 
     def send_key_frame(self, frame_orig):
         if frame_orig is None:
-            print("failed to make key_frame")
+            print("send_key_frame. failed to make key_frame")
             return False
 
         img = None
         if self.replace_image_frame is not None:
+            # print("send_key_frame. set replace_image_frame")
             img = cv2.cvtColor(self.replace_image_frame, cv2.COLOR_RGB2BGR)
         else:
+            # print("send_key_frame. set camera image")
             avatar_frame = frame_orig[..., ::-1]
             avatar_frame, (self.frame_offset_x, self.frame_offset_y) = crop(avatar_frame,
                                                                             p=self.frame_proportion,
@@ -90,7 +85,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
 
         if img is not None:
             new_avatar = img.copy()
-            self.encoder_change_avatar(new_avatar)
+            self.predict_dectector_wrapper.detector_change_avatar(new_avatar)
 
             key_frame = cv2.imencode('.jpg', img)
             key_frame_bin_data = self.bin_wrapper.to_bin_key_frame(key_frame[1])
@@ -105,8 +100,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                                                                   bindata=key_frame_bin_data)
 
             self.send_video_queue.put(bin_data)
-            print(
-                f'send_key_frame. len:[{len(key_frame_bin_data)}], resolution:{img.shape[0]} x {img.shape[1]}')
+            print(f'send_key_frame. len:[{len(key_frame_bin_data)}], resolution:{img.shape[0]} x {img.shape[1]}')
 
             self.sent_key_frame = True
             return True
@@ -128,22 +122,23 @@ class EncodeVideoPacketWorker(GrmParentThread):
                         continue
 
                     if frame is None or self.join_flag is False:
-                        time.sleep(0.1)
+                        time.sleep(0.001)
                         continue
 
                     if self.request_send_key_frame_flag is True:
-                        self.request_send_key_frame_flag = False
                         if self.get_grm_mode_type() == ModeType.KDM:
+                            self.request_send_key_frame_flag = False
                             pass
                         else:
-                            if self.send_key_frame(frame) is False:
-                                self.request_send_key_frame_flag = True
+                            if self.send_key_frame(frame) is True:
+                                self.request_send_key_frame_flag = False
+                                self.video_capture_queue.clear()
                             continue
 
                     video_bin_data = None
                     if self.request_recv_key_frame_flag is True:
-                        self.request_recv_key_frame_flag = False
                         video_bin_data = self.bin_wrapper.to_bin_request_key_frame()
+                        self.request_recv_key_frame_flag = False
 
                     if video_bin_data is None:
                         if self.get_grm_mode_type() == ModeType.KDM:
@@ -154,7 +149,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                                                                                   features_spiga)
                         else:
                             if self.sent_key_frame is True:
-                                kp_norm = self.predict_dectector.detect(self.fa, frame)
+                                kp_norm = self.predict_dectector_wrapper.detect(frame)
                                 video_bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
 
                     if video_bin_data is not None:
@@ -168,8 +163,8 @@ class EncodeVideoPacketWorker(GrmParentThread):
                         self.send_video_queue.put(video_bin_data)
 
                     time.sleep(0.001)
-                time.sleep(0.1)
-            time.sleep(0.1)
+                time.sleep(0.001)
+            time.sleep(0.001)
 
         print("Stop EncodeVideoPacketWorker")
         self.terminated = True

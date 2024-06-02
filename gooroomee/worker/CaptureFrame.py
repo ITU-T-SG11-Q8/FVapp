@@ -1,4 +1,6 @@
 import time
+import cv2
+from PyQt5.uic.properties import QtGui
 
 from afy.videocaptureasync import VideoCaptureAsync
 from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE
@@ -12,26 +14,20 @@ def get_current_time_ms():
 
 class CaptureFrameWorker(GrmParentThread):
     def __init__(self,
-                 p_camera_index,
+                 p_main_window,
                  p_worker_video_encode_packet,
                  p_capture_queue,
                  p_preview_queue):
         super().__init__()
-        # self.view_location = view_location
-        # self.bin_wrapper = None
-        # self.lock = None
+        self.main_window = p_main_window
         self.worker_video_encode_packet = p_worker_video_encode_packet
         self.capture_queue: GRMQueue = p_capture_queue
         self.preview_queue: GRMQueue = p_preview_queue
-        # self.request_send_key_frame_flag: bool = False
-        # self.join_flag: bool = False
-        # self.connect_flag: bool = False
-        self.change_device(p_camera_index)
+        self.change_device(self.main_window.comboBox_video_device.currentIndex())
 
     def run(self):
-        frame_proportion = 0.9
-        frame_offset_x = 0
-        frame_offset_y = 0
+        time_stat = get_current_time_ms()
+        captured_fps = 0
 
         while self.alive:
             while self.running:
@@ -39,18 +35,18 @@ class CaptureFrameWorker(GrmParentThread):
 
                 if camera_index is None:
                     print(f'camera index invalid...[{camera_index}]')
-                    time.sleep(0.1)
+                    time.sleep(0.001)
                     continue
 
                 if camera_index < 0:
                     print(f"Camera index invalid...{camera_index}")
                     break
 
-                time.sleep(1)
+                time.sleep(0.001)
                 print(f"video capture async [{camera_index}]")
                 cap = VideoCaptureAsync(camera_index)
                 print(f"video capture async end [{camera_index}]")
-                time.sleep(1)
+                time.sleep(0.001)
                 cap.start()
 
                 frame_proportion = 0.9
@@ -58,21 +54,28 @@ class CaptureFrameWorker(GrmParentThread):
                 frame_offset_y = 0
 
                 self.capture_queue.clear()
-                capture_time = get_current_time_ms()
 
                 if self.worker_video_encode_packet is not None:
                     self.worker_video_encode_packet.request_send_key_frame()
 
+                captured_time = 0
                 while self.running:
                     if not cap.isOpened():
-                        time.sleep(0.1)
+                        time.sleep(0.001)
                         continue
 
                     ret, frame = cap.read()
                     if not ret:
                         print(f"cannot get cat.read (is that means end of stream?). will be go to get exit")
-                        time.sleep(1)
+                        time.sleep(0.001)
                         break
+
+                    if get_current_time_ms() - time_stat >= 1000:
+                        time_stat = get_current_time_ms()
+                        if self.main_window is not None:
+                            self.main_window.request_update_stat(f'{captured_fps}')
+                        captured_fps = 0
+                    captured_fps += 1
 
                     frame = frame[..., ::-1]
                     frame, (frame_offset_x, frame_offset_y) = crop(frame,
@@ -82,22 +85,30 @@ class CaptureFrameWorker(GrmParentThread):
                     frame = resize(frame, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
                     if self.join_flag is True:
-                        if get_current_time_ms() - capture_time >= 200:
-                            capture_time = get_current_time_ms()
-
-                            capture_frame = frame.copy()
-                            self.capture_queue.put(capture_frame)
+                        capture_frame = frame.copy()
+                        self.capture_queue.put(capture_frame)
 
                     preview_frame = frame.copy()
-                    # draw_rect(preview_frame)
-
-                    # print(f"preview put.....")
                     self.preview_queue.put(preview_frame)
-                    time.sleep(0.1)
+
+                    if captured_time == 0:
+                        captured_time = get_current_time_ms()
+                    elapsed_time = get_current_time_ms() - captured_time
+                    captured_time = get_current_time_ms()
+                    time.sleep(0.01)
+
+                    capture_fps = 20
+                    delay_time = round(1000 / capture_fps)
+                    if delay_time > elapsed_time:
+                        end_time = get_current_time_ms() + (delay_time - elapsed_time)
+                        while get_current_time_ms() < end_time:
+                            time.sleep(0.001)
+                    else:
+                        captured_time = 0
 
                 print(f'video interface release index = [{self.device_index}]')
                 cap.stop()
-            time.sleep(0.1)
+            time.sleep(0.001)
 
         print("Stop CaptureFrameWorker")
         self.terminated = True

@@ -1,6 +1,7 @@
 import time
 import cv2
 from PyQt5.QtCore import pyqtSlot, QThread
+import torch
 
 from GUI.MainWindow import MainWindowClass
 from GUI.RenderView import RenderViewClass
@@ -9,7 +10,6 @@ from PyQt5 import QtCore
 from PyQt5 import QtGui
 
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
-from gooroomee.grm_predictor import GRMPredictor, GRMPredictGenerator
 from gooroomee.grm_queue import GRMQueue
 
 import numpy as np
@@ -20,19 +20,28 @@ def get_current_time_ms():
 
 
 class RenderViewData:
-    def __init__(self, snnm_value, kdm_value, total_size):
+    def __init__(self,
+                 snnm_value,
+                 kdm_value,
+                 value_size):
         self.snnm_value = snnm_value
         self.kdm_value = kdm_value
-        self.total_size = total_size
+        self.value_size = value_size
 
 
 class RenderView(QThread):
-    def __init__(self, worker_video_decode_and_render_packet, peer_id, predict_generator, spiga_wrapper, render_view_class):
+    def __init__(self,
+                 worker_video_decode_and_render_packet,
+                 peer_id,
+                 predict_generator_wrapper,
+                 spiga_wrapper,
+                 render_view_class):
         super().__init__()
 
+        self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
         self.worker_video_decode_and_render_packet = worker_video_decode_and_render_packet
         self.peer_id = peer_id
-        self.predict_generator = predict_generator
+        self.predict_generator_wrapper = predict_generator_wrapper
         self.spiga_wrapper = spiga_wrapper
         self.render_view_class = render_view_class
         self.find_key_frame = False
@@ -62,14 +71,14 @@ class RenderView(QThread):
                 render_view_data = self.recv_video_queue.pop()
                 snnm_value = render_view_data.snnm_value
                 kdm_value = render_view_data.kdm_value
-                total_size = render_view_data.total_size
+                value_size = render_view_data.value_size
 
                 if snnm_value is not None:
-                    kp_norm = self.bin_wrapper.parse_kp_norm(snnm_value, self.predict_generator.device)
-                    _frame = self.predict_generator.generate(kp_norm)
-
-                    # cv2.imshow('client', out[..., ::-1])
-                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, total_size)
+                    kp_norm = self.bin_wrapper.parse_kp_norm(snnm_value, self.device)
+                    if kp_norm is not None:
+                        _frame = self.predict_generator_wrapper.generate(kp_norm)
+                        # cv2.imshow('client', out[..., ::-1])
+                        self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, value_size)
 
                 if kdm_value is not None:
                     shape, features_tracker, features_spiga = self.bin_wrapper.parse_features(kdm_value)
@@ -85,7 +94,7 @@ class RenderView(QThread):
                         return new_img
 
                     _frame = convert(_frame, 0, 255, np.uint8)
-                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, total_size)
+                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, value_size)
 
             if self.time_update_stat == 0 or get_current_time_ms() - self.time_update_stat >= 1000:
                 self.time_update_stat = get_current_time_ms()
@@ -96,17 +105,16 @@ class RenderView(QThread):
                 bit_rate = float(self.bit_rate) * 8.0 / 1024.0
                 self.bit_rate = 0
 
-                stat = 'fps : %d\nbit_rate: %.2fkbps' % (fps, bit_rate)
+                stat = 'fps : %d\nbit_rate : %.2fkbps\nqueue_count : %d' % (fps, bit_rate, self.recv_video_queue.length())
                 self.render_view_class.request_update_stat(stat)
 
-        time.sleep(0.1)
+        time.sleep(0.001)
 
 
 class DecodeAndRenderVideoPacketWorker(GrmParentThread):
     add_peer_view_signal = QtCore.pyqtSignal(str, str)
     remove_peer_view_signal = QtCore.pyqtSignal(str)
     render_views = {}
-    pending_predict_generators = []
 
     def __init__(self,
                  p_main_window,
@@ -114,11 +122,12 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                  p_recv_video_queue,
                  p_config,
                  p_checkpoint,
+                 p_spiga_wrapper,
                  p_fa,
-                 p_device,
-                 p_predict_dectector,
-                 p_spiga_wrapper):
+                 p_reserve_predict_generator_wrapper,
+                 p_release_predict_generator_wrapper):
         super().__init__()
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.main_window: MainWindowClass = p_main_window
         self.worker_video_encode_packet = p_worker_video_encode_packet
         self.width = 0
@@ -128,9 +137,10 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.config = p_config
         self.checkpoint = p_checkpoint
         self.fa = p_fa
-        self.device = p_device
-        self.predict_dectector = p_predict_dectector
         self.spiga_wrapper = p_spiga_wrapper
+        self.reserve_predict_generator_wrapper = p_reserve_predict_generator_wrapper
+        self.release_predict_generator_wrapper = p_release_predict_generator_wrapper
+
         self.connect_flag: bool = False
         # self.lock = None
         self.cur_ava = 0
@@ -147,15 +157,13 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.connect_flag = p_connect_flag
         print(f"DecodeAndRenderVideoPacketWorker connect:{self.connect_flag}")
 
-    def change_avatar(self, peer_id, new_avatar):
-        print(f'decoder. change_avatar, peer_id:{peer_id} resolution:{new_avatar.shape[0]} x {new_avatar.shape[1]}')
+    def decoder_change_avatar(self, peer_id, new_avatar):
+        print(f'decoder_change_avatar, peer_id:{peer_id}')
         if self.render_views.get(peer_id) is None:
             return
 
         render_view = self.render_views[peer_id]
-        render_view.avatar_kp = GRMPredictor.get_frame_kp(self.fa, new_avatar)
-        avatar = new_avatar
-        render_view.predict_generator.set_source_image(self.predict_dectector.kp_detector, avatar)
+        render_view.predict_generator_wrapper.generator_change_avatar(new_avatar)
         render_view.find_key_frame = True
 
     def run(self):
@@ -167,7 +175,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                     _bin_data = media_queue_data.bin_data
 
                     if self.join_flag is False or _bin_data is None:
-                        time.sleep(0.1)
+                        time.sleep(0.001)
                         continue
 
                     if len(_bin_data) > 0:
@@ -183,7 +191,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
                             new_avatar = key_frame.copy()
 
-                            self.change_avatar(_peer_id, new_avatar)
+                            self.decoder_change_avatar(_peer_id, new_avatar)
                             self.draw_render_video(_peer_id, new_avatar, len(_bin_data))
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_KEY_FRAME_REQUEST:
@@ -196,12 +204,12 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                                 render_view = self.render_views[_peer_id]
 
                                 if render_view.find_key_frame is True:
-                                    render_view.request_recv_key_frame = 0
+                                    render_view.time_request_recv_key_frame = 0
                                     render_view_data = RenderViewData(_value, None, len(_bin_data))
                                     render_view.recv_video_queue.put(render_view_data)
                                 else:
-                                    if render_view.time_request_recv_key_frame == 0 or get_current_time_ms() - render_view.request_recv_key_frame >= 1000:
-                                        render_view.request_recv_key_frame = get_current_time_ms()
+                                    if render_view.time_request_recv_key_frame == 0 or get_current_time_ms() - render_view.time_request_recv_key_frame >= 5000:
+                                        render_view.time_request_recv_key_frame = get_current_time_ms()
                                         self.worker_video_encode_packet.request_recv_key_frame()
 
                         elif _type == TYPE_INDEX.TYPE_VIDEO_SPIGA:
@@ -211,8 +219,8 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                                 render_view_data = RenderViewData(None, _value, len(_bin_data))
                                 render_view.recv_video_queue.put(render_view_data)
 
-                time.sleep(0.1)
-            time.sleep(0.1)
+                time.sleep(0.001)
+            time.sleep(0.001)
             # print('sleep')
 
             self.remove_peer_view_signal.emit('all')
@@ -221,7 +229,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.terminated = True
         # self.terminate()
 
-    def draw_render_video(self, peer_id, frame, total_size):
+    def draw_render_video(self, peer_id, frame, value_size):
         if self.render_views.get(peer_id) is not None:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = frame.copy()
@@ -232,7 +240,7 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
             render_view = self.render_views[peer_id]
             render_view.fps += 1
-            render_view.bit_rate += total_size
+            render_view.bit_rate += value_size
 
             render_view_class = render_view.render_view_class
             pixmap_resized = pixmap.scaledToWidth(render_view_class.render_location.width())
@@ -243,32 +251,13 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
     @pyqtSlot(str, str)
     def add_peer_view(self, peer_id, display_name):
         if self.render_views.get(peer_id) is None:
-            predict_generator = None
-            if len(self.pending_predict_generators) > 0:
-                predict_generator = self.pending_predict_generators.pop()
-            else:
-                predict_generator_args = {
-                    # 'config_path': opt.config,
-                    # 'checkpoint_path': opt.checkpoint,
-                    # 'relative': opt.relative,
-                    # 'adapt_movement_scale': opt.adapt_scale,
-                    # 'enc_downscale': opt.enc_downscale,
-                    'config': self.config,
-                    'checkpoint': self.checkpoint,
-                    'device': self.device
-                }
-
-                print(f'>>> WILL create_avatarify_decoder')
-                predict_generator = GRMPredictGenerator(
-                    **predict_generator_args
-                )
-                print(f'<<< DID create_avatarify_decoder')
+            predict_generator_wrapper = self.reserve_predict_generator_wrapper()
 
             render_view_class = RenderViewClass()
             render_view_class.setWindowTitle(display_name)
             render_view_class.show()
 
-            render_view = RenderView(self, peer_id, predict_generator, self.spiga_wrapper, render_view_class)
+            render_view = RenderView(self, peer_id, predict_generator_wrapper, self.spiga_wrapper, render_view_class)
             self.render_views[peer_id] = render_view
 
             render_view.start_process()
@@ -279,13 +268,14 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             for render_view in self.render_views.values():
                 render_view.render_view_class.close()
                 render_view.stop_process()
-                self.pending_predict_generators.append(render_view.predict_generator)
+                self.release_predict_generator_wrapper(render_view.predict_generator_wrapper)
+
             self.render_views.clear()
         elif self.render_views.get(peer_id) is not None:
             render_view = self.render_views[peer_id]
             render_view.render_view_class.close()
             render_view.stop_process()
-            self.pending_predict_generators.append(render_view.predict_generator)
+            self.release_predict_generator_wrapper(render_view.predict_generator_wrapper)
             del self.render_views[peer_id]
 
     def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):

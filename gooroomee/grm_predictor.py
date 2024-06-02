@@ -15,12 +15,14 @@ def to_tensor(a):
 
 def normalize_kp(kp_source, kp_driving, kp_driving_initial, adapt_movement_scale=False,
                  use_relative_movement=False, use_relative_jacobian=False):
+    adapt_movement_scale = 1
     if adapt_movement_scale:
-        source_area = ConvexHull(kp_source['value'][0].data.cpu().numpy()).volume
-        driving_area = ConvexHull(kp_driving_initial['value'][0].data.cpu().numpy()).volume
-        adapt_movement_scale = np.sqrt(source_area) / np.sqrt(driving_area)
-    else:
-        adapt_movement_scale = 1
+        try:
+            source_area = ConvexHull(kp_source['value'][0].data.cpu().numpy()).volume
+            driving_area = ConvexHull(kp_driving_initial['value'][0].data.cpu().numpy()).volume
+            adapt_movement_scale = np.sqrt(source_area) / np.sqrt(driving_area)
+        except Exception as e:
+            print(f'{e}')
 
     kp_new = {k: v for k, v in kp_driving.items()}
 
@@ -104,7 +106,7 @@ class GRMPredictor:
             if self.kp_driving_initial is None:
                 self.kp_driving_initial = self.kp_detector(driving)
                 self.start_frame = driving_frame.copy()
-                self.start_frame_kp = GRMPredictor.get_frame_kp(self.fa, driving_frame)
+                self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source,
@@ -132,7 +134,7 @@ class GRMPredictor:
             if self.kp_driving_initial is None:
                 self.kp_driving_initial = self.kp_detector(driving)
                 self.start_frame = driving_frame.copy()
-                self.start_frame_kp = GRMPredictor.get_frame_kp(self.fa, driving_frame)
+                self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source,
@@ -157,9 +159,8 @@ class GRMPredictor:
 
             return out
 
-    @staticmethod
-    def get_frame_kp(fa, image):
-        kp_landmarks = fa.get_landmarks(image)
+    def get_frame_kp(self, image):
+        kp_landmarks = self.fa.get_landmarks(image)
         if kp_landmarks:
             kp_image = kp_landmarks[0]
             kp_image = GRMPredictor.normalize_alignment_kp(kp_image)
@@ -183,14 +184,15 @@ class GRMPredictor:
 
 
 class GRMPredictDetector:
-    def __init__(self, config, checkpoint, device = None, relative=True, adapt_movement_scale=True):
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, config, checkpoint, fa, relative=True, adapt_movement_scale=True):
+        self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.fa = fa
         self.relative = relative
         self.adapt_movement_scale = adapt_movement_scale
 
         self.kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
                                       **config['model_params']['common_params'])
-        self.kp_detector.to(device)
+        self.kp_detector.to(self.device)
         self.kp_detector.load_state_dict(checkpoint['kp_detector'])
         self.kp_detector.eval()
 
@@ -204,12 +206,12 @@ class GRMPredictDetector:
         print('>>> WILL detector set_source_image')
         self.source = to_tensor(source_image).to(self.device)
         self.kp_source = self.kp_detector(self.source)
-        print('<<< DID detector set_source_image')
+        print('<<<     DID detector set_source_image')
 
     def reset_frames(self):
         self.kp_driving_initial = None
 
-    def detect(self, fa, driving_frame):
+    def detect(self, driving_frame):
         assert self.kp_source is not None, "call set_source_image()"
 
         with torch.no_grad():
@@ -218,7 +220,7 @@ class GRMPredictDetector:
             if self.kp_driving_initial is None:
                 self.kp_driving_initial = self.kp_detector(driving)
                 self.start_frame = driving_frame.copy()
-                self.start_frame_kp = GRMPredictor.get_frame_kp(fa, driving_frame)
+                self.start_frame_kp = self.get_frame_kp(driving_frame)
 
             kp_driving = self.kp_detector(driving)
             kp_norm = normalize_kp(kp_source=self.kp_source,
@@ -230,15 +232,25 @@ class GRMPredictDetector:
 
             return kp_norm
 
+    def get_frame_kp(self, image):
+        kp_landmarks = self.fa.get_landmarks(image)
+        if kp_landmarks:
+            kp_image = kp_landmarks[0]
+            kp_image = GRMPredictor.normalize_alignment_kp(kp_image)
+            return kp_image
+        else:
+            return None
+
 
 class GRMPredictGenerator:
-    def __init__(self, config, checkpoint, device = None, enc_downscale=1):
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, config, checkpoint, fa, enc_downscale=1):
+        self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.fa = fa
         self.enc_downscale = enc_downscale
 
         self.generator = OcclusionAwareGenerator(**config['model_params']['generator_params'],
                                                  **config['model_params']['common_params'])
-        self.generator.to(device)
+        self.generator.to(self.device)
         self.generator.load_state_dict(checkpoint['generator'])
         self.generator.eval()
 
@@ -257,7 +269,7 @@ class GRMPredictGenerator:
             source_enc = self.source
 
         self.generator.encode_source(source_enc)
-        print('<<< DID generator set_source_image')
+        print('<<<     DID generator set_source_image')
         return self.kp_source
 
     def generate(self, kp_norm):
@@ -272,3 +284,85 @@ class GRMPredictGenerator:
             out = (np.clip(out, 0, 1) * 255).astype(np.uint8)
 
             return out
+
+    def get_frame_kp(self, image):
+        kp_landmarks = self.fa.get_landmarks(image)
+        if kp_landmarks:
+            kp_image = kp_landmarks[0]
+            kp_image = GRMPredictor.normalize_alignment_kp(kp_image)
+            return kp_image
+        else:
+            return None
+
+
+def mse(imageA, imageB):
+    # the 'Mean Squared Error' between the two images is the
+    # sum of the squared difference between the two images;
+    # NOTE: the two images must have the same dimension
+    err = np.sum((imageA.astype("float") - imageB.astype("float")) ** 2)
+    err /= float(imageA.shape[0] * imageA.shape[1])
+
+    # return the MSE, the lower the error, the more "similar"
+    # the two images are
+    return err
+
+
+def compare_images(imageA, imageB):
+    # compute the mean squared error and structural similarity
+    # index for the images
+    m = mse(imageA, imageB)
+    # s = ssim(imageA, imageB)
+    return True if m == 0.0 else False  # and s == 1.0
+
+
+class GRMPredictDetectorWrapper:
+    def __init__(self, config, checkpoint, fa, relative=True, adapt_movement_scale=True):
+        self.predict_dectector = GRMPredictDetector(config, checkpoint, fa, relative, adapt_movement_scale)
+        self.avatar_kp = None
+        self.avatar = None
+
+    def detector_change_avatar(self, new_avatar):
+        if self.avatar is not None and compare_images(self.avatar, new_avatar) is True:
+            print('detector_change_avatar, same avatar entered.')
+        else:
+            self.avatar = new_avatar
+
+            print(f'>>> WILL detector_change_avatar, resolution:{self.avatar.shape[0]} x {self.avatar.shape[1]}')
+            self.avatar_kp = self.predict_dectector.get_frame_kp(self.avatar)
+            self.predict_dectector.set_source_image(self.avatar)
+            print(f'<<<     DID detector_change_avatar')
+        self.predict_dectector.reset_frames()
+
+    def detect(self, frame):
+        if self.predict_dectector is not None:
+            return self.predict_dectector.detect(frame)
+        return None
+
+    def get_frame_kp(self, image):
+        if self.predict_dectector is not None:
+            return self.predict_dectector.get_frame_kp(image)
+        return None
+
+
+class GRMPredictGeneratorWrapper:
+    def __init__(self, predict_dectector, config, checkpoint, fa, enc_downscale=1):
+        self.predict_dectector = predict_dectector
+        self.predict_generator = GRMPredictGenerator(config, checkpoint, fa, enc_downscale)
+        self.avatar = None
+        self.avatar_kp = None
+
+    def generator_change_avatar(self, new_avatar):
+        if self.avatar is not None and compare_images(self.avatar, new_avatar) is True:
+            print('detector_change_avatar, same avatar entered.')
+        else:
+            self.avatar = new_avatar
+
+            print(f'>>> WILL generator_change_avatar. resolution:{self.avatar.shape[0]} x {self.avatar.shape[1]}')
+            self.avatar_kp = self.predict_dectector.get_frame_kp(self.avatar)
+            self.predict_generator.set_source_image(self.predict_dectector.kp_detector, self.avatar)
+            print(f'<<<     DID generator_change_avatar')
+
+    def generate(self, frame):
+        if self.predict_generator is not None:
+            return self.predict_generator.generate(frame)
+        return None
