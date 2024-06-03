@@ -307,9 +307,9 @@ class MainWindowClass(QMainWindow, form_class):
             else:
                 print("\nCreation fail.", creation_res.code)
                 if self.mode_type == ModeType.KDM:
-                    self.request_update_log(f'failed to create KDM mode room. overlayId:{creation_res.overlayId}')
+                    self.request_update_log(f'failed to create KDM mode room. code:{creation_res.code}')
                 else:
-                    self.request_update_log(f'failed to create SNNM mode room. overlayId:{creation_res.overlayId}')
+                    self.request_update_log(f'failed to create SNNM mode room. code:{creation_res.code}')
 
                 self.join_session.overlayId = ""
 
