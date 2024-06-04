@@ -70,7 +70,7 @@ class RenderView(QThread):
             if self.recv_video_queue.length() > 0:
                 render_view_data = self.recv_video_queue.pop()
                 snnm_value = render_view_data.snnm_value
-                kdm_value = render_view_data.kdm_value
+                kdm_value = None    # render_view_data.kdm_value
                 value_size = render_view_data.value_size
 
                 if snnm_value is not None:
@@ -88,13 +88,18 @@ class RenderView(QThread):
                         _imin = _img.min()
                         _imax = _img.max()
 
-                        a = (target_type_max - target_type_min) / (_imax - _imin)
-                        b = target_type_max - a * _imax
-                        new_img = (a * _img + b).astype(target_type)
-                        return new_img
+                        if _imax > _imin:
+                            a = (target_type_max - target_type_min) / (_imax - _imin)
+                            b = target_type_max - a * _imax
+                            new_img = (a * _img + b).astype(target_type)
+                            return new_img
+                        return None
 
-                    _frame = convert(_frame, 0, 255, np.uint8)
-                    self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, value_size)
+                    if _frame is not None:
+                        _frame = convert(_frame, 0, 255, np.uint8)
+
+                    if _frame is not None:
+                        self.worker_video_decode_and_render_packet.draw_render_video(self.peer_id, _frame, value_size)
 
             if self.time_update_stat == 0 or get_current_time_ms() - self.time_update_stat >= 1000:
                 self.time_update_stat = get_current_time_ms()
@@ -108,6 +113,7 @@ class RenderView(QThread):
                 stat = 'fps : %d\nbit_rate : %.2fkbps\nqueue_count : %d' % (fps, bit_rate, self.recv_video_queue.length())
                 self.render_view_class.request_update_stat(stat)
 
+            time.sleep(0.001)
         time.sleep(0.001)
 
 
@@ -230,6 +236,9 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         # self.terminate()
 
     def draw_render_video(self, peer_id, frame, value_size):
+        if frame is None:
+            return
+
         if self.render_views.get(peer_id) is not None:
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = frame.copy()
@@ -246,7 +255,6 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             pixmap_resized = pixmap.scaledToWidth(render_view_class.render_location.width())
             if pixmap_resized is not None:
                 render_view_class.render_location.setPixmap(pixmap)
-
 
     @pyqtSlot(str, str)
     def add_peer_view(self, peer_id, display_name):
@@ -284,3 +292,10 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         else:
             self.add_peer_view_signal.emit(p_peer_data.peer_id, p_peer_data.display_name)
 
+    def check_show_view(self, peer_id):
+        if self.render_views.get(peer_id) is None:
+            return
+
+        render_view = self.render_views[peer_id]
+        if render_view.render_view_class.isVisible() is False:
+            render_view.render_view_class.show()

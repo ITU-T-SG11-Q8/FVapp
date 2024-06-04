@@ -95,7 +95,7 @@ class ThreadManager(threading.Thread):
                     pos += data_len
                     recv_data = recv_data[pos:]
 
-                    #print(f'############## data_len:{data_len} recv_len:{len(_data)}')
+                    # print(f'############## data_len:{data_len} recv_len:{len(_data)}')
                     if self.on_client_data is not None:
                         self.on_client_data(_data)
 
@@ -166,7 +166,7 @@ class BINComm:
                 byte_data_len = np.array([byte_data_len])
                 byte_data_len = byte_data_len.tobytes()
 
-                #print(f'#### send. byte_data_len:{len(bin_data)} sent_len:{len(byte_data_len + bin_data)}')
+                # print(f'#### send. byte_data_len:{len(bin_data)} sent_len:{len(byte_data_len + bin_data)}')
                 self.client_socket.send(byte_data_len + bin_data)
 
                 time.sleep(0.001)

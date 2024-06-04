@@ -17,7 +17,7 @@ import cv2
 import yaml
 import face_alignment
 
-from gooroomee.grm_defs import ModeType, IMAGE_SIZE
+from gooroomee.grm_defs import IMAGE_SIZE
 from gooroomee.grm_queue import GRMQueue
 from gooroomee.grm_predictor import GRMPredictDetectorWrapper, GRMPredictGeneratorWrapper
 from gooroomee.worker.CaptureFrame import CaptureFrameWorker
@@ -167,11 +167,11 @@ def set_connect(connect_flag: bool):
 
 def load_images():
     avatars = []
-    filenames = []
+    file_names = []
     images_list = sorted(glob.glob('avatars/*'))
-    for i, f in enumerate(images_list):
-        if f.endswith('.jpg') or f.endswith('.jpeg') or f.endswith('.png'):
-            img = cv2.imread(f)
+    for _, file in enumerate(images_list):
+        if file.endswith('.jpg') or file.endswith('.jpeg') or file.endswith('.png'):
+            img = cv2.imread(file)
             if img is None:
                 continue
 
@@ -180,14 +180,14 @@ def load_images():
             img = img[..., :3][..., ::-1]
             img = resize(img, (IMAGE_SIZE, IMAGE_SIZE))
             avatars.append(img)
-            filenames.append(f)
-    return avatars, filenames
+            file_names.append(file)
+    return avatars, file_names
 
 
-def get_replace_image_frame(replace_image):
+def get_reference_image_frame(_reference_image):
     try:
-        with open(replace_image, "rb") as f:
-            bytes_read = f.read()
+        with open(_reference_image, "rb") as file:
+            bytes_read = file.read()
 
             frame = np.frombuffer(bytes_read, dtype=np.uint8)
             frame = cv2.imdecode(frame, flags=1)
@@ -228,14 +228,14 @@ def create_predict_generator_wrapper():
     }
 
     print(f'>>> WILL create_avatarify_generator')
-    predict_generator_wrapper = GRMPredictGeneratorWrapper(
+    _predict_generator_wrapper = GRMPredictGeneratorWrapper(
         **predict_generator_args
     )
     if avatar is not None:
-        predict_generator_wrapper.generator_change_avatar(avatar)
+        _predict_generator_wrapper.generator_change_avatar(avatar)
     print(f'<<<     DID create_avatarify_generator')
 
-    return predict_generator_wrapper
+    return _predict_generator_wrapper
 
 
 def reserve_predict_generator_wrapper():
@@ -245,8 +245,8 @@ def reserve_predict_generator_wrapper():
         return create_predict_generator_wrapper()
 
 
-def release_predict_generator_wrapper(predict_generator_wrapper):
-    reserved_predict_generator_wrappers.append(predict_generator_wrapper)
+def release_predict_generator_wrapper(_predict_generator_wrapper):
+    reserved_predict_generator_wrappers.append(_predict_generator_wrapper)
 
 
 if _platform == 'darwin':
@@ -265,11 +265,11 @@ if __name__ == '__main__':
     print("START.....MAIN WINDOWS")
     print(f'cuda is {torch.cuda.is_available()}')
 
-    replace_image = None
+    reference_image = None
     _, filenames = load_images()
     if filenames is not None and len(filenames) > 0:
-        replace_image = filenames[0]
-        avatar = get_replace_image_frame(replace_image)
+        reference_image = filenames[0]
+        avatar = get_reference_image_frame(reference_image)
 
     with open(opt.config) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
@@ -303,7 +303,7 @@ if __name__ == '__main__':
 
     if spiga_wrapper is None:
         print(f'>>> WILL create_spiga_wrapper')
-        # spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
+        spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
         print(f'<<<     DID create_spiga_wrapper')
 
     main_window = MainWindowClass(get_worker_seq_num,
@@ -327,11 +327,9 @@ if __name__ == '__main__':
                                                          predict_dectector_wrapper,
                                                          spiga_wrapper)
 
-    '''
     worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
                                                      get_worker_seq_num,
                                                      get_worker_ssrc)
-    '''
 
     worker_grm_comm = GrmCommWorker(main_window,
                                     send_audio_queue,
@@ -357,9 +355,10 @@ if __name__ == '__main__':
                             worker_capture_frame,
                             worker_video_encode_packet,
                             worker_video_decode_and_render_packet,
+                            worker_mic_encode_packet,
                             worker_speaker_decode_packet,
                             worker_grm_comm,
-                            replace_image)
+                            reference_image)
     main_window.room_information_button.setDisabled(True)
     main_window.show()
 
