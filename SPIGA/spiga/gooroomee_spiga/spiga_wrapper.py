@@ -34,11 +34,21 @@ class SPIGAWrapper:
         self.faces_analyzer = VideoAnalyzer(self.faces_tracker, processor=self.processor)
 
     def encode(self, frame):
-        features_tracker, features_spiga = self.faces_analyzer.grm_encode_process_frame(frame)
-        return features_tracker, features_spiga
+        try:
+            features_tracker, features_spiga = self.faces_analyzer.grm_encode_process_frame(frame)
+            return features_tracker, features_spiga
+        except Exception as e:
+            print(f'{e}')
+
+        return None, None
 
     def decode(self, features_tracker, features_spiga):
-        self.faces_analyzer.grm_decode_process_frame(features_tracker, features_spiga)
-        frame = self.viewer.grm_process_image(self.blackFrame, drawers=[self.faces_analyzer],
-                                              show_attributes=self.plot)
-        return frame
+        try:
+            self.faces_analyzer.grm_decode_process_frame(features_tracker, features_spiga)
+            frame = self.viewer.grm_process_image(self.blackFrame, drawers=[self.faces_analyzer],
+                                                  show_attributes=self.plot)
+            return frame
+        except Exception as e:
+            print(f'{e}')
+
+        return None

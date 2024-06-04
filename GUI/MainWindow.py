@@ -418,6 +418,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.request_alert('alert', 'Please enter the private_key.')
                 return
 
+            owner_data.set_value_owner_id(self.peer_id)
             owner_data.set_value_display_name(self.display_name)
             owner_data.set_value_private_key(self.private_key)
             owner_data.write_values()
