@@ -269,7 +269,7 @@ class MainWindowClass(QMainWindow, form_class):
         if self.create_button.text() == "Channel Create":
             self.room_create_ui.clear_value()
 
-            self.room_create_ui.lineEdit_ower_id.setText(owner_data.ownerOwnerId)
+            self.room_create_ui.lineEdit_ower_id.setText(owner_data.ownerPeerId)
             self.room_create_ui.lineEdit_admin_key.setText(owner_data.ownerAdminKey)
             self.room_create_ui.checkBox_facevideo.setChecked(owner_data.ownerUseFaceVideo)
             self.room_create_ui.checkBox_audio.setChecked(owner_data.ownerUseAudio)
@@ -310,7 +310,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.request_alert('alert', 'Please enter the admin_key.')
                 return
 
-            owner_data.set_value_owner_id(owner_id)
+            owner_data.set_value_peer_id(owner_id)
             owner_data.set_value_admin_key(admin_key)
             owner_data.set_value_use_face_video(checked_face_video)
             owner_data.set_value_use_audio(checked_audio)
@@ -333,18 +333,18 @@ class MainWindowClass(QMainWindow, form_class):
 
             service_control_channel = api.ChannelServiceControl()
             service_control_channel.channelId = "controlChannel"
-            face_video_channel = None
-            audio_channel = None
-            text_channel = None
 
+            channel_list = []
             if checked_face_video is True:
                 face_video_channel = internal_create_channel_facevideo(self.mode_type)
+                channel_list.append(face_video_channel)
             if checked_audio is True:
                 audio_channel = internal_create_channel_audio()
+                channel_list.append(audio_channel)
             if checked_text is True:
                 text_channel = internal_create_channel_text()
-
-            creation_req.channelList = [service_control_channel, face_video_channel, audio_channel, text_channel]
+                channel_list.append(text_channel)
+            creation_req.channelList = channel_list
 
             print("\nCreationRequest:", creation_req)
             creation_req.sourceList = ["*"]
@@ -389,7 +389,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_ui.comboBox_overlay_id.addItem(self.join_session.creationOverlayId)
                 self.join_ui.lineEditTitle.setText(self.join_session.creationTitle)
 
-            self.join_ui.lineEdit_peer_id.setText(owner_data.ownerOwnerId)
+            self.join_ui.lineEdit_peer_id.setText(owner_data.ownerPeerId)
             self.join_ui.lineEdit_display_name.setText(owner_data.ownerDisplayName)
             self.join_ui.lineEdit_private_key.setText(owner_data.ownerPrivateKey)
 
@@ -418,7 +418,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.request_alert('alert', 'Please enter the private_key.')
                 return
 
-            owner_data.set_value_owner_id(self.peer_id)
+            owner_data.set_value_peer_id(self.peer_id)
             owner_data.set_value_display_name(self.display_name)
             owner_data.set_value_private_key(self.private_key)
             owner_data.write_values()
@@ -461,7 +461,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.join_session.description = join_response.description
                 self.set_join(True)
 
-                if len(self.join_ui.owner_id) > 0 and self.join_ui.owner_id == owner_data.ownerOwnerId:
+                if len(self.join_ui.owner_id) > 0 and self.join_ui.owner_id == owner_data.ownerPeerId:
                     self.join_session.creationOverlayId = self.join_session.overlayId
                     self.join_session.creationTitle = self.join_session.title
                     self.create_button.setText("Channel Delete")
@@ -531,6 +531,13 @@ class MainWindowClass(QMainWindow, form_class):
         else:
             self.room_information_ui.button_ok.setDisabled(True)
 
+        if self.join_session.video_channel_type() == ModeType.KDM:
+            self.room_information_ui.radioButton_snnm.setChecked(False)
+            self.room_information_ui.radioButton_kdm.setChecked(True)
+        else:
+            self.room_information_ui.radioButton_snnm.setChecked(True)
+            self.room_information_ui.radioButton_kdm.setChecked(False)
+
         self.room_information_ui.groupBox.setCheckable(False)
         self.room_information_ui.checkBox_facevideo.setChecked(False)
         self.room_information_ui.checkBox_audio.setChecked(False)
@@ -540,13 +547,10 @@ class MainWindowClass(QMainWindow, form_class):
             for i in self.join_session.channelList:
                 if i.channelType is api.ChannelType.FeatureBasedVideo:
                     self.room_information_ui.checkBox_facevideo.setChecked(True)
-                    self.room_information_ui.checkBox_facevideo.setDisabled(True)
                 elif i.channelType is api.ChannelType.Audio:
                     self.room_information_ui.checkBox_audio.setChecked(True)
-                    self.room_information_ui.checkBox_audio.setDisabled(True)
                 elif i.channelType is api.ChannelType.Text:
                     self.room_information_ui.checkBox_text.setChecked(True)
-                    self.room_information_ui.checkBox_text.setDisabled(True)
         self.room_information_ui.show()
 
     def modify_information_room(self):
@@ -564,21 +568,20 @@ class MainWindowClass(QMainWindow, form_class):
         modification_req.title = title
         modification_req.description = description
 
-        face_video_channel = None
-        audio_channel = None
-        text_channel = None
-
+        channel_list = []
         if self.room_information_ui.checkBox_facevideo.isChecked():
             face_video_channel = internal_create_channel_facevideo(self.mode_type)
             face_video_channel.sourceList = ["*"]
+            channel_list.append(face_video_channel)
         if self.room_information_ui.checkBox_audio.isChecked():
             audio_channel = internal_create_channel_audio()
             audio_channel.sourceList = ["*"]
+            channel_list.append(audio_channel)
         if self.room_information_ui.checkBox_text.isChecked():
             text_channel = internal_create_channel_text()
             text_channel.sourceList = ["*"]
-        if face_video_channel is not None or audio_channel is not None or text_channel is not None:
-            modification_req.channelList = [face_video_channel, audio_channel, text_channel]
+            channel_list.append(text_channel)
+        modification_req.channelList = channel_list
 
         # modification_req.newOwnerId = self.join_session.ownerId
         # modification_req.newAdminKey = self.join_session.accessKey
@@ -696,9 +699,10 @@ class MainWindowClass(QMainWindow, form_class):
                     img = resize(cropped_img, (IMAGE_SIZE, IMAGE_SIZE))[..., :3]
 
                 self.reference_image_frame = img
+                img = resize(img, (self.reference_image_view.width(), self.reference_image_view.width()))[..., :3]
 
-                h, w, c = self.reference_image_frame.shape
-                q_img = QtGui.QImage(self.reference_image_frame.data, w, h, w * c, QtGui.QImage.Format_RGB888)
+                h, w, c = img.shape
+                q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
                 pixmap = QtGui.QPixmap.fromImage(q_img)
                 pixmap_resized = pixmap.scaledToWidth(self.reference_image_view.width())
                 if pixmap_resized is not None:
@@ -707,7 +711,7 @@ class MainWindowClass(QMainWindow, form_class):
 
                     if self.checkBox_use_reference_image.isChecked() is True and \
                             self.worker_video_encode_packet is not None:
-                        self.worker_video_encode_packet.set_reference_image_frame(self.reference_image_frame)
+                        self.worker_video_encode_packet.set_reference_image_frame(img)
 
                     return True
         except Exception as err:
@@ -741,13 +745,13 @@ class MainWindowClass(QMainWindow, form_class):
         ret: bool = False
 
         print(f"creationOverlayId:{self.join_session.creationOverlayId}, "
-              f"ownerId:{owner_data.ownerOwnerId}, "
+              f"ownerId:{owner_data.ownerPeerId}, "
               f"adminKey:{owner_data.ownerAdminKey}")
         if self.join_session.creationOverlayId is not None and \
-                owner_data.ownerOwnerId is not None and \
+                owner_data.ownerPeerId is not None and \
                 owner_data.ownerAdminKey is not None:
             res = api.Removal(api.RemovalRequest(self.join_session.creationOverlayId,
-                                                 owner_data.ownerOwnerId,
+                                                 owner_data.ownerPeerId,
                                                  owner_data.ownerAdminKey))
             if res.code is api.ResponseCode.Success:
                 self.request_update_log('Succeed to delete the channel.')

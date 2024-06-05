@@ -13,6 +13,7 @@ from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from gooroomee.grm_queue import GRMQueue
 
 import numpy as np
+from afy.utils import resize
 
 
 def get_current_time_ms():
@@ -23,14 +24,16 @@ def draw_render_video(render_view, frame):
     if frame is None:
         return
 
+    render_view_class = render_view.render_view_class
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    img = frame.copy()
+
+    # img = frame.copy()
+    img = resize(frame, (render_view_class.render_location.width(), render_view_class.render_location.width()))[..., :3]
 
     h, w, c = img.shape
     q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)
     pixmap = QtGui.QPixmap.fromImage(q_img)
 
-    render_view_class = render_view.render_view_class
     pixmap_resized = pixmap.scaledToWidth(render_view_class.render_location.width())
     if pixmap_resized is not None:
         render_view_class.render_location.setPixmap(pixmap)
@@ -84,6 +87,10 @@ class RenderView(QThread):
     def run(self):
         while self.running:
             if self.recv_video_queue.length() > 0:
+                drop_count = self.recv_video_queue.length() / 10
+                for i in range(drop_count):
+                    self.recv_video_queue.pop()
+
                 render_view_data = self.recv_video_queue.pop()
                 snnm_value = render_view_data.snnm_value
                 kdm_value = render_view_data.kdm_value
@@ -253,6 +260,9 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
     @pyqtSlot(str, str)
     def add_peer_view(self, peer_id, display_name):
+        if self.join_flag is False:
+            return
+
         if self.render_views.get(peer_id) is None:
             predict_generator_wrapper = self.reserve_predict_generator_wrapper()
 

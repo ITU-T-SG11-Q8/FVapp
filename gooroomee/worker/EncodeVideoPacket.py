@@ -119,6 +119,10 @@ class EncodeVideoPacketWorker(GrmParentThread):
                 # print(f"recv video queue read .....")
                 if self.video_capture_queue.length() > 0:
                     # print(f"video_capture_queue ..... length:{self.video_capture_queue.length()}")
+                    drop_count = self.video_capture_queue.length() / 10
+                    for i in range(drop_count):
+                        self.video_capture_queue.pop()
+
                     frame = self.video_capture_queue.pop()
 
                     if self.join_flag is False or \
@@ -126,9 +130,6 @@ class EncodeVideoPacketWorker(GrmParentThread):
                             type(frame) is bytes:
                         time.sleep(0.001)
                         continue
-
-                    if self.video_capture_queue.length() >= 10:
-                        self.video_capture_queue.clear()
 
                     if self.request_send_key_frame_flag is True:
                         if self.get_grm_mode_type() == ModeType.KDM:

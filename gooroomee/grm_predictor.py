@@ -308,6 +308,9 @@ def mse(imageA, imageB):
 
 
 def compare_images(imageA, imageB):
+    if imageA.shape[0] != imageB.shape[0] or imageA.shape[1] != imageB.shape[1]:
+        return False
+
     # compute the mean squared error and structural similarity
     # index for the images
     m = mse(imageA, imageB)

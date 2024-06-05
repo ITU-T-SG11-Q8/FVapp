@@ -7,7 +7,7 @@ from PyQt5.QtCore import QThread
 from hp2papi.classes import Channel, ChannelType
 from typing import List
 
-IMAGE_SIZE = 256
+IMAGE_SIZE = 384
 
 # 음성 출력 설정
 RATE = 44100
@@ -26,7 +26,7 @@ ownerDataFileName = 'config.ini'
 
 
 class OwnerData:
-    ownerOwnerId: str = None
+    ownerPeerId: str = None
     ownerAdminKey: str = None
     ownerUseFaceVideo: bool = None
     ownerUseAudio: bool = None
@@ -39,7 +39,7 @@ class OwnerData:
         self.read_values()
 
     def read_values(self):
-        self.ownerOwnerId = ''
+        self.ownerPeerId = ''
         self.ownerAdminKey = ''
         self.ownerUseFaceVideo = True
         self.ownerUseAudio = False
@@ -57,8 +57,8 @@ class OwnerData:
                         l_value = sub_lines[0].strip()
                         r_value = sub_lines[1].strip()
 
-                        if l_value == 'OWNER_ID':
-                            self.ownerOwnerId = r_value
+                        if l_value == 'PEER_ID':
+                            self.ownerPeerId = r_value
                         elif l_value == 'ADMIN_KEY':
                             self.ownerAdminKey = r_value
                         elif l_value == 'USE_FACE_VIDEO':
@@ -90,7 +90,7 @@ class OwnerData:
             print(f'Could not read file:{ownerDataFileName}')
 
     def write_values(self):
-        lines = [f'OWNER_ID={self.ownerOwnerId}',
+        lines = [f'PEER_ID={self.ownerPeerId}',
                  f'ADMIN_KEY={self.ownerAdminKey}',
                  f'USE_FACE_VIDEO={self.ownerUseFaceVideo}',
                  f'USE_AUDIO={self.ownerUseAudio}',
@@ -108,8 +108,8 @@ class OwnerData:
         except IOError:
             print(f'Could not read file:{ownerDataFileName}')
 
-    def set_value_owner_id(self, owner_id):
-        self.ownerOwnerId = owner_id
+    def set_value_peer_id(self, peer_id):
+        self.ownerPeerId = peer_id
 
     def set_value_admin_key(self, admin_key):
         self.ownerAdminKey = admin_key
