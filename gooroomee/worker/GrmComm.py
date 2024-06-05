@@ -39,6 +39,7 @@ class GrmCommWorker(GrmParentThread):
         self.stop_comm_request = False
         self.stop_comm_completed = False
         self.lock = threading.Lock()
+        self.send_video_fps = 0
 
     def on_client_connected(self):
         print('grm_worker:on_client_connected')
@@ -103,6 +104,11 @@ class GrmCommWorker(GrmParentThread):
 
         return ret
 
+    def get_send_video_fps(self):
+        send_video_fps = self.send_video_fps
+        self.send_video_fps = 0
+        return send_video_fps
+
     def run(self):
         while self.alive:
             print(f'GrmCommWorker running:{self.running}')
@@ -155,6 +161,7 @@ class GrmCommWorker(GrmParentThread):
 
                             if res.code is api.ResponseCode.Success:
                                 # print("Video SendData success")
+                                self.send_video_fps += 1
                                 pass
                             else:
                                 print("Video SendData fail.", res.code)

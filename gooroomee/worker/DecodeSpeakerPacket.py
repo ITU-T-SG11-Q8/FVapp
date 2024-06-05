@@ -14,16 +14,60 @@ class DecodeSpeakerPacketWorker(GrmParentThread):
                  p_recv_audio_queue):
         super().__init__()
         self.recv_audio_queue: GRMQueue = p_recv_audio_queue
-        self.speaker_interface = 0
+        self.speaker_interface = None
         self.bin_wrapper = BINWrapper()
+        self.device_index: int = 0
+
+        self.device_index: int = 0
+        self.enable_spk: bool = False
+        self.failed_spk: bool = False
+        self.changing_device: bool = False
+
+    def set_join(self, p_join_flag: bool):
+        GrmParentThread.set_join(self, p_join_flag)
+        self.recv_audio_queue.clear()
+
+        if p_join_flag is False:
+            self.set_enable_spk(False)
+
+    def set_enable_spk(self, enable_spk):
+        self.enable_spk = enable_spk
+        print(f"DecodeSpeakerPacketWorker enable_spk:{self.enable_spk}")
+
+    def change_device_spk(self, p_device_index):
+        self.failed_spk = False
+        self.changing_device = True
+
+        print(f'Try to change speaker device index = [{p_device_index}]')
+        while self.speaker_interface is not None:
+            time.sleep(0.1)
+
+        self.device_index = p_device_index
+        print(f'Completed changing speaker device index = [{p_device_index}]')
+        self.changing_device = False
 
     def run(self):
         while self.alive:
             while self.running:
+                if self.join_flag is False or \
+                        self.enable_spk is False or \
+                        self.failed_spk is True or \
+                        self.changing_device is True:
+                    time.sleep(0.001)
+                    continue
+
                 self.speaker_interface = pyaudio.PyAudio()
-                self.recv_audio_queue.clear()
+                if self.speaker_interface is None:
+                    self.failed_spk = True
+                    time.sleep(0.001)
+                    break
 
                 while self.running:
+                    if self.join_flag is False or \
+                            self.enable_spk is False or \
+                            self.changing_device is True:
+                        break
+
                     # lock_speaker_audio_queue.acquire()
                     # print(f"recv audio queue size:{self.recv_audio_queue.length()}")
                     if self.recv_audio_queue.length() > 0:
@@ -36,8 +80,11 @@ class DecodeSpeakerPacketWorker(GrmParentThread):
                     time.sleep(0.001)
 
                 for speaker_stream in self.speaker_streams:
-                    speaker_stream.stop_stream()
-                    speaker_stream.close()
+                    try:
+                        speaker_stream.stop_stream()
+                        speaker_stream.close()
+                    except Exception as e:
+                        print(f'{e}')
                 self.speaker_streams.clear()
 
                 if self.speaker_interface is not None:

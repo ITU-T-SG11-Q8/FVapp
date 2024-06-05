@@ -14,7 +14,7 @@ def get_current_time_ms():
 
 class EncodeVideoPacketWorker(GrmParentThread):
     avatar = None
-    replace_image_frame = None
+    reference_image_frame = None
     frame_proportion = 0.9
     frame_offset_x = 0
     frame_offset_y = 0
@@ -43,13 +43,17 @@ class EncodeVideoPacketWorker(GrmParentThread):
         self.request_recv_key_frame_flag: bool = False
         self.connect_flag: bool = False
 
-    def set_replace_image_frame(self, frame):
+    def set_join(self, p_join_flag: bool):
+        GrmParentThread.set_join(self, p_join_flag)
+        self.video_capture_queue.clear()
+
+    def set_reference_image_frame(self, frame):
         if frame is None:
-            self.replace_image_frame = None
-            # print('set_replace_image_frame. frame is None')
+            self.reference_image_frame = None
+            # print('set_reference_image_frame. frame is None')
         else:
-            self.replace_image_frame = frame.copy()
-            # print('set_replace_image_frame. frame is not None')
+            self.reference_image_frame = frame.copy()
+            # print('set_reference_image_frame. frame is not None')
 
         self.request_send_key_frame()
 
@@ -71,9 +75,9 @@ class EncodeVideoPacketWorker(GrmParentThread):
             return False
 
         img = None
-        if self.replace_image_frame is not None:
-            # print("send_key_frame. set replace_image_frame")
-            img = cv2.cvtColor(self.replace_image_frame, cv2.COLOR_RGB2BGR)
+        if self.reference_image_frame is not None:
+            # print("send_key_frame. set reference_image_frame")
+            img = cv2.cvtColor(self.reference_image_frame, cv2.COLOR_RGB2BGR)
         else:
             # print("send_key_frame. set camera image")
             avatar_frame = frame_orig[..., ::-1]
@@ -113,34 +117,37 @@ class EncodeVideoPacketWorker(GrmParentThread):
 
             while self.running:
                 # print(f"recv video queue read .....")
-                while self.video_capture_queue.length() > 0:
+                if self.video_capture_queue.length() > 0:
                     # print(f"video_capture_queue ..... length:{self.video_capture_queue.length()}")
+                    drop_count = round(self.video_capture_queue.length() / 10)
+                    if drop_count > 0:
+                        for i in range(drop_count):
+                            self.video_capture_queue.pop()
+
                     frame = self.video_capture_queue.pop()
 
-                    if type(frame) is bytes:
-                        print(f'EncodeVideoPacketWorker. frame type is invalid')
-                        continue
-
-                    if frame is None or self.join_flag is False:
+                    if self.join_flag is False or \
+                            frame is None or \
+                            type(frame) is bytes:
                         time.sleep(0.001)
                         continue
 
                     if self.request_send_key_frame_flag is True:
                         if self.get_grm_mode_type() == ModeType.KDM:
                             self.request_send_key_frame_flag = False
-                            pass
                         else:
                             if self.send_key_frame(frame) is True:
                                 self.request_send_key_frame_flag = False
                                 self.video_capture_queue.clear()
                             continue
 
-                    video_bin_data = None
-                    if self.request_recv_key_frame_flag is True:
-                        video_bin_data = self.bin_wrapper.to_bin_request_key_frame()
-                        self.request_recv_key_frame_flag = False
+                    request_recv_key_frame_flag = self.request_recv_key_frame_flag
+                    self.request_recv_key_frame_flag = False
 
-                    if video_bin_data is None:
+                    video_bin_data = None
+                    if request_recv_key_frame_flag is True and self.get_grm_mode_type() == ModeType.SNNM:
+                        video_bin_data = self.bin_wrapper.to_bin_request_key_frame()
+                    else:
                         if self.get_grm_mode_type() == ModeType.KDM:
                             features_tracker, features_spiga = self.spiga_wrapper.encode(frame)
                             if features_tracker is not None and features_spiga is not None:
@@ -153,16 +160,16 @@ class EncodeVideoPacketWorker(GrmParentThread):
                                 video_bin_data = self.bin_wrapper.to_bin_kp_norm(kp_norm)
 
                     if video_bin_data is not None:
-                        video_bin_data = self.bin_wrapper.to_bin_wrap_common_header(
+                        video_bin_data_to_send = self.bin_wrapper.to_bin_wrap_common_header(
                             timestamp=get_current_time_ms(),
                             seq_num=self.get_worker_seq_num(),
                             ssrc=self.get_worker_ssrc(),
                             mediatype=TYPE_INDEX.TYPE_VIDEO,
                             bindata=video_bin_data)
 
-                        self.send_video_queue.put(video_bin_data)
+                        if video_bin_data_to_send is not None:
+                            self.send_video_queue.put(video_bin_data_to_send)
 
-                    time.sleep(0.001)
                 time.sleep(0.001)
             time.sleep(0.001)
 

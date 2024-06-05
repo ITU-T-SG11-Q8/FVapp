@@ -27,31 +27,71 @@ class EncodeMicPacketWorker(GrmParentThread):
         self.mic_interface = 0
         self.connect_flag: bool = False
         self.bin_wrapper = BINWrapper()
-        # self.device_index = 2
+        self.device_index: int = 0
+        self.enable_mic: bool = False
+        self.failed_mic: bool = False
+        self.changing_device: bool = False
+
+    def set_join(self, p_join_flag: bool):
+        GrmParentThread.set_join(self, p_join_flag)
+        self.send_grm_queue.clear()
+
+        if p_join_flag is False:
+            self.set_enable_mic(False)
 
     def set_connect(self, p_connect_flag: bool):
         self.connect_flag = p_connect_flag
         print(f"EncodeMicPacketWorker connect:{self.connect_flag}")
 
+    def set_enable_mic(self, enable_mic):
+        self.enable_mic = enable_mic
+        print(f"EncodeMicPacketWorker enable_mic:{self.enable_mic}")
+
+    def change_device_mic(self, p_device_index):
+        self.failed_mic = False
+        self.changing_device = True
+
+        print(f'try to change mic device index = [{p_device_index}]')
+        while self.mic_interface is not None:
+            time.sleep(0.1)
+
+        self.device_index = p_device_index
+        print(f'completed changing mic device index = [{p_device_index}]')
+        self.changing_device = False
+
     def run(self):
         while self.alive:
             while self.running:
+                if self.join_flag is False or \
+                        self.enable_mic is False or \
+                        self.failed_mic is True or \
+                        self.changing_device is True:
+                    time.sleep(0.001)
+                    continue
+
                 self.mic_interface = pyaudio.PyAudio()
                 print(f"Mic Open, Mic Index:{self.device_index}")
-                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16, channels=1, rate=44100, input=True,
+                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16,
+                                                          channels=1,
+                                                          rate=44100,
+                                                          input=True,
                                                           input_device_index=self.device_index,
                                                           frames_per_buffer=MIC_CHUNK)
                 if self.mic_stream is None:
+                    self.failed_mic = True
                     time.sleep(0.001)
-                    # continue
                     break
 
                 print(f"Mic End, Mic Index:{self.device_index} mic_stream:{self.mic_stream}")
 
                 while self.running:
-                    _frames = self.mic_stream.read(SPK_CHUNK, exception_on_overflow=False)
+                    if self.join_flag is False or \
+                            self.enable_mic is False or \
+                            self.changing_device is True:
+                        break
 
-                    if _frames is None or self.join_flag is False:
+                    _frames = self.mic_stream.read(SPK_CHUNK, exception_on_overflow=False)
+                    if _frames is None:
                         time.sleep(0.001)
                         continue
 
@@ -62,12 +102,14 @@ class EncodeMicPacketWorker(GrmParentThread):
                                                                                 mediatype=TYPE_INDEX.TYPE_AUDIO,
                                                                                 bindata=audio_bin_data)
                     self.send_grm_queue.put(audio_bin_data)
-
                     time.sleep(0.001)
 
                 self.mic_stream.stop_stream()
                 self.mic_stream.close()
                 self.mic_interface.terminate()
+                self.mic_stream = None
+                self.mic_interface = None
+
                 QApplication.processEvents()
                 time.sleep(0.001)
 

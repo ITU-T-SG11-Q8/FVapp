@@ -1,9 +1,10 @@
 import time
 import cv2
 
-from gooroomee.grm_defs import GrmParentThread
+from gooroomee.grm_defs import GrmParentThread, IMAGE_SIZE
 from gooroomee.grm_queue import GRMQueue
 from PyQt5 import QtGui
+from afy.utils import resize
 
 
 class PreviewWorker(GrmParentThread):
@@ -25,7 +26,8 @@ class PreviewWorker(GrmParentThread):
                     if frame is not None:
                         cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                        img = frame.copy()
+                        # img = frame.copy()
+                        img = resize(frame, (self.view_location.width(), self.view_location.width()))[..., :3]
 
                         h, w, c = img.shape
                         q_img = QtGui.QImage(img.data, w, h, w * c, QtGui.QImage.Format_RGB888)

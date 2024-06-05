@@ -5,21 +5,23 @@ from typing import List
 
 
 class RoomOverlay:
-    def __init__(self, overlayId: str, title: str):
+    def __init__(self, overlayId: str, title: str, ownerId: str):
         self.overlayId: str = overlayId
         self.title: str = title
+        self.ownerId: str = ownerId
 
 
 class RoomJoinClass(QDialog):
     def __init__(self, p_send_join_room_func):
         super().__init__()
         self.ui = uic.loadUi("GUI/JOIN_ROOM.ui", self)
-        self.comboBox_overlay_id.currentIndexChanged.connect(self.on_comboBox_overlay_id_changed)
+        self.comboBox_overlay_id.currentIndexChanged.connect(self.on_changed_overlay_id)
         self.button_ok.clicked.connect(p_send_join_room_func)
-        self.button_cancel.clicked.connect(self.close_button)
-        self.button_query.clicked.connect(self.overlay_id_search_func)
-        self.button_search_private.clicked.connect(self.search_private)
+        self.button_cancel.clicked.connect(self.on_close_button)
+        self.button_query.clicked.connect(self.on_overlay_id_search_func)
+        self.button_search_private.clicked.connect(self.on_search_private)
         self.overlays: List[RoomOverlay] = []
+        self.owner_id = ''
 
     def clear_value(self):
         self.comboBox_overlay_id.clear()
@@ -29,22 +31,22 @@ class RoomJoinClass(QDialog):
         self.lineEdit_display_name.setText('')
         self.lineEdit_private_key.setText('')
 
-    def search_private(self):
+    def on_search_private(self):
         private_key = QFileDialog.getOpenFileName(self, filter='*.pem')
         self.lineEdit_private_key.setText(private_key[0])
 
-    def close_button(self):
+    def on_close_button(self):
         self.close()
 
-    def on_comboBox_overlay_id_changed(self, index):
+    def on_changed_overlay_id(self, index):
         if 0 <= index < len(self.overlays):
-            title = self.overlays[index].title
-            self.lineEditTitle.setText(title)
+            self.owner_id = self.overlays[index].ownerId
+            self.lineEditTitle.setText(self.overlays[index].title)
 
-    def overlay_id_search_func(self):
+    def on_overlay_id_search_func(self):
+        self.owner_id = ''
         self.comboBox_overlay_id.clear()
         self.overlays.clear()
-        self.lineEditTitle.setText('')
 
         query_res = api.Query()
         if query_res.code is not api.ResponseCode.Success:
@@ -59,10 +61,14 @@ class RoomJoinClass(QDialog):
             print("\noverlay id empty.")
 
         # query_len = len(query_res.overlay)
-        for i in query_res.overlay:
-            print(f'add overlay:{i.overlayId} title:{i.title}')
+        if len(query_res.overlay) > 0:
+            self.owner_id = query_res.overlay[0].ownerId
 
-            roomOverlay: RoomOverlay = RoomOverlay(i.overlayId, i.title)
-            self.overlays.append(roomOverlay)
+            for i in query_res.overlay:
+                print(f'add overlay:{i.overlayId} title:{i.title}')
 
-            self.ui.comboBox_overlay_id.addItem(i.overlayId)
+                room_overlay: RoomOverlay = RoomOverlay(i.overlayId, i.title, i.ownerId)
+                self.overlays.append(room_overlay)
+
+                self.ui.comboBox_overlay_id.addItem(i.overlayId)
+
