@@ -87,9 +87,10 @@ class RenderView(QThread):
     def run(self):
         while self.running:
             if self.recv_video_queue.length() > 0:
-                drop_count = self.recv_video_queue.length() / 10
-                for i in range(drop_count):
-                    self.recv_video_queue.pop()
+                drop_count = round(self.recv_video_queue.length() / 10)
+                if drop_count > 0:
+                    for i in range(drop_count):
+                        self.recv_video_queue.pop()
 
                 render_view_data = self.recv_video_queue.pop()
                 snnm_value = render_view_data.snnm_value

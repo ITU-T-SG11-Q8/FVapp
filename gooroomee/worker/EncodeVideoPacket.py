@@ -119,9 +119,10 @@ class EncodeVideoPacketWorker(GrmParentThread):
                 # print(f"recv video queue read .....")
                 if self.video_capture_queue.length() > 0:
                     # print(f"video_capture_queue ..... length:{self.video_capture_queue.length()}")
-                    drop_count = self.video_capture_queue.length() / 10
-                    for i in range(drop_count):
-                        self.video_capture_queue.pop()
+                    drop_count = round(self.video_capture_queue.length() / 10)
+                    if drop_count > 0:
+                        for i in range(drop_count):
+                            self.video_capture_queue.pop()
 
                     frame = self.video_capture_queue.pop()
 
