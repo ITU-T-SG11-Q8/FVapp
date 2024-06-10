@@ -69,14 +69,18 @@ class EncodeMicPacketWorker(GrmParentThread):
                     time.sleep(0.001)
                     continue
 
-                self.mic_interface = pyaudio.PyAudio()
-                print(f"Mic Open, Mic Index:{self.device_index}")
-                self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16,
-                                                          channels=1,
-                                                          rate=44100,
-                                                          input=True,
-                                                          input_device_index=self.device_index,
-                                                          frames_per_buffer=MIC_CHUNK)
+                try:
+                    self.mic_interface = pyaudio.PyAudio()
+                    print(f"Mic Open, Mic Index:{self.device_index}")
+                    self.mic_stream = self.mic_interface.open(format=pyaudio.paInt16,
+                                                              channels=1,
+                                                              rate=44100,
+                                                              input=True,
+                                                              input_device_index=self.device_index,
+                                                              frames_per_buffer=MIC_CHUNK)
+                except Exception as e:
+                    print(f'{e}')
+
                 if self.mic_stream is None:
                     self.failed_mic = True
                     time.sleep(0.001)
