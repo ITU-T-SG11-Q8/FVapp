@@ -505,7 +505,8 @@ class MainWindowClass(QMainWindow, form_class):
         else:
             self.request_alert('error', f'Failed to leave the channel. error code:{res.code}')
             print("\nLeave fail.", res.code)
-
+            
+        self.join_peer.clear()
         self.join_session.clear_value()
         self.listWidget.clear()
         self.listWidget_chat_message.clear()
