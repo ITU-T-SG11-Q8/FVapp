@@ -370,6 +370,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.create_button.setText("Channel Delete")
                 self.room_information_button.setDisabled(False)
 
+                print('register session_notification_listener')
                 api.SetNotificatonListener(self.join_session.overlayId, self.join_session.ownerId,
                                            func=self.session_notification_listener)
             else:
@@ -434,6 +435,7 @@ class MainWindowClass(QMainWindow, form_class):
             self.join_session.ownerId = self.peer_id
             self.room_information_button.setDisabled(False)
 
+            print('register session_notification_listener')
             api.SetNotificatonListener(overlayId=self.join_session.overlayId,
                                        peerId=self.join_session.ownerId,
                                        func=self.session_notification_listener)

@@ -59,7 +59,8 @@ config = None
 checkpoint = None
 predict_dectector_wrapper: GRMPredictDetectorWrapper = None
 reserved_predict_generator_wrappers = []
-spiga_wrapper: SPIGAWrapper = None
+spiga_encoder_wrapper: SPIGAWrapper = None
+reserved_spiga_decoder_wrappers = []
 fa = None
 avatar = None
 
@@ -91,7 +92,6 @@ def all_start_worker():
     global worker_grm_comm
     global config
     global checkpoint
-    global spiga_wrapper
     global fa
 
     workers = [ worker_video_encode_packet,
@@ -227,13 +227,13 @@ def create_predict_generator_wrapper():
         'fa': fa
     }
 
-    print(f'>>> WILL create_avatarify_generator')
+    print(f'>>> WILL create_predict_generator_wrapper')
     _predict_generator_wrapper = GRMPredictGeneratorWrapper(
         **predict_generator_args
     )
     if avatar is not None:
         _predict_generator_wrapper.generator_change_avatar(avatar)
-    print(f'<<<     DID create_avatarify_generator')
+    print(f'<<<     DID create_predict_generator_wrapper')
 
     return _predict_generator_wrapper
 
@@ -247,6 +247,25 @@ def reserve_predict_generator_wrapper():
 
 def release_predict_generator_wrapper(_predict_generator_wrapper):
     reserved_predict_generator_wrappers.append(_predict_generator_wrapper)
+
+
+def create_decoder_spiga_wrapper():
+    print(f'>>> WILL create_decoder_spiga_wrapper')
+    _spiggar_encoder_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
+    print(f'<<<     DID create_decoder_spiga_wrapper')
+
+    return _spiggar_encoder_wrapper
+
+
+def reserve_spiga_decoder_wrapper():
+    if len(reserved_spiga_decoder_wrappers) > 0:
+        return reserved_spiga_decoder_wrappers.pop()
+    else:
+        return create_decoder_spiga_wrapper()
+
+
+def release_spiga_decoder_wrapper(_spiga_decoder_wrapper):
+    reserved_spiga_decoder_wrappers.append(_spiga_decoder_wrapper)
 
 
 if _platform == 'darwin':
@@ -278,7 +297,6 @@ if __name__ == '__main__':
     fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=device)
 
     if predict_dectector_wrapper is None:
-        print(f'>>> WILL create_avatarify_detector')
         predict_dectector_args = {
             # 'config_path': opt.config,
             # 'checkpoint_path': opt.checkpoint,
@@ -289,22 +307,28 @@ if __name__ == '__main__':
             'checkpoint': checkpoint,
             'fa': fa
         }
+
+        print(f'>>> WILL create_predict_detector_wrapper')
         predict_dectector_wrapper = GRMPredictDetectorWrapper(
             **predict_dectector_args
         )
 
         if avatar is not None:
             predict_dectector_wrapper.detector_change_avatar(avatar)
-        print(f'<<<     DID create_avatarify_detector')
+        print(f'<<<     DID create_predict_detector_wrapper')
+
+    if spiga_encoder_wrapper is None:
+        print(f'>>> WILL create_spiga_encoder_wrapper')
+        spiga_encoder_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
+        print(f'<<<     DID create_spiga_encoder_wrapper')
 
     for i in range(2):
         predict_generator_wrapper = create_predict_generator_wrapper()
         reserved_predict_generator_wrappers.append(predict_generator_wrapper)
 
-    if spiga_wrapper is None:
-        print(f'>>> WILL create_spiga_wrapper')
-        spiga_wrapper = SPIGAWrapper((IMAGE_SIZE, IMAGE_SIZE, 3))
-        print(f'<<<     DID create_spiga_wrapper')
+    for i in range(2):
+        spiga_decoder_wrapper = create_decoder_spiga_wrapper()
+        reserved_spiga_decoder_wrappers.append(spiga_decoder_wrapper)
 
     main_window = MainWindowClass(get_worker_seq_num,
                                   get_worker_ssrc,
@@ -325,7 +349,7 @@ if __name__ == '__main__':
                                                          get_worker_ssrc,
                                                          get_grm_mode_type,
                                                          predict_dectector_wrapper,
-                                                         spiga_wrapper)
+                                                         spiga_encoder_wrapper)
 
     worker_mic_encode_packet = EncodeMicPacketWorker(send_audio_queue,
                                                      get_worker_seq_num,
@@ -344,10 +368,11 @@ if __name__ == '__main__':
                                                                              recv_video_queue,
                                                                              config,
                                                                              checkpoint,
-                                                                             spiga_wrapper,
                                                                              fa,
                                                                              reserve_predict_generator_wrapper,
-                                                                             release_predict_generator_wrapper)  # VideoRecvWorker
+                                                                             release_predict_generator_wrapper,
+                                                                             reserve_spiga_decoder_wrapper,
+                                                                             release_spiga_decoder_wrapper)  # VideoRecvWorker
 
     worker_speaker_decode_packet = DecodeSpeakerPacketWorker(recv_audio_queue)
 
