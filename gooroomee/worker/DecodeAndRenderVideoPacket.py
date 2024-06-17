@@ -51,17 +51,17 @@ class RenderViewData:
 
 class RenderView(QThread):
     def __init__(self,
-                 peer_id,
-                 predict_generator_wrapper,
-                 spiga_wrapper,
-                 render_view_class):
+                 p_peer_id,
+                 p_predict_generator_wrapper,
+                 p_spiga_decoder_wrapper,
+                 p_render_view_class):
         super().__init__()
 
         self.device = ('cuda' if torch.cuda.is_available() else 'cpu')
-        self.peer_id = peer_id
-        self.predict_generator_wrapper = predict_generator_wrapper
-        self.spiga_wrapper = spiga_wrapper
-        self.render_view_class = render_view_class
+        self.peer_id = p_peer_id
+        self.predict_generator_wrapper = p_predict_generator_wrapper
+        self.spiga_decoder_wrapper = p_spiga_decoder_wrapper
+        self.render_view_class = p_render_view_class
         self.find_key_frame = False
         self.time_request_recv_key_frame = 0
         self.avatar_kp = None
@@ -110,7 +110,7 @@ class RenderView(QThread):
 
                 if kdm_value is not None:
                     shape, features_tracker, features_spiga = self.bin_wrapper.parse_features(kdm_value)
-                    _frame = self.spiga_wrapper.decode(features_tracker, features_spiga)
+                    _frame = self.spiga_decoder_wrapper.decode(features_tracker, features_spiga)
 
                     def convert(_img, target_type_min, target_type_max, target_type):
                         _imin = _img.min()
@@ -161,10 +161,11 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
                  p_recv_video_queue,
                  p_config,
                  p_checkpoint,
-                 p_spiga_wrapper,
                  p_fa,
                  p_reserve_predict_generator_wrapper,
-                 p_release_predict_generator_wrapper):
+                 p_release_predict_generator_wrapper,
+                 p_reserve_spiga_decoder_wrapper,
+                 p_release_spiga_decoder_wrapper):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.main_window: MainWindowClass = p_main_window
@@ -176,9 +177,10 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
         self.config = p_config
         self.checkpoint = p_checkpoint
         self.fa = p_fa
-        self.spiga_wrapper = p_spiga_wrapper
         self.reserve_predict_generator_wrapper = p_reserve_predict_generator_wrapper
         self.release_predict_generator_wrapper = p_release_predict_generator_wrapper
+        self.reserve_spiga_decoder_wrapper = p_reserve_spiga_decoder_wrapper
+        self.release_spiga_decoder_wrapper = p_release_spiga_decoder_wrapper
 
         self.connect_flag: bool = False
         # self.lock = None
@@ -266,12 +268,13 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
 
         if self.render_views.get(peer_id) is None:
             predict_generator_wrapper = self.reserve_predict_generator_wrapper()
+            spiga_decoder_wrapper = self.reserve_spiga_decoder_wrapper()
 
             render_view_class = RenderViewClass()
             render_view_class.setWindowTitle(display_name)
             render_view_class.show()
 
-            render_view = RenderView(peer_id, predict_generator_wrapper, self.spiga_wrapper, render_view_class)
+            render_view = RenderView(peer_id, predict_generator_wrapper, spiga_decoder_wrapper, render_view_class)
             self.render_views[peer_id] = render_view
 
             render_view.start_process()
@@ -282,14 +285,29 @@ class DecodeAndRenderVideoPacketWorker(GrmParentThread):
             for render_view in self.render_views.values():
                 render_view.render_view_class.close()
                 render_view.stop_process()
-                self.release_predict_generator_wrapper(render_view.predict_generator_wrapper)
+
+                if render_view.predict_generator_wrapper is not None:
+                    self.release_predict_generator_wrapper(render_view.predict_generator_wrapper)
+                    render_view.predict_generator_wrapper = None
+
+                if render_view.spiga_decoder_wrapper is not None:
+                    self.release_spiga_decoder_wrapper(render_view.spiga_decoder_wrapper)
+                    render_view.spiga_decoder_wrapper = None
 
             self.render_views.clear()
         elif self.render_views.get(peer_id) is not None:
             render_view = self.render_views[peer_id]
             render_view.render_view_class.close()
             render_view.stop_process()
-            self.release_predict_generator_wrapper(render_view.predict_generator_wrapper)
+
+            if render_view.predict_generator_wrapper is not None:
+                self.release_predict_generator_wrapper(render_view.predict_generator_wrapper)
+                render_view.predict_generator_wrapper = None
+
+            if render_view.spiga_decoder_wrapper is not None:
+                self.release_spiga_decoder_wrapper(render_view.spiga_decoder_wrapper)
+                render_view.spiga_decoder_wrapper = None
+
             del self.render_views[peer_id]
 
     def update_user(self, p_peer_data: PeerData, p_leave_flag: bool):

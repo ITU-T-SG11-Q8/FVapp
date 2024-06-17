@@ -26,7 +26,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                  p_get_worker_ssrc,
                  p_get_grm_mode_type,
                  p_predict_dectector_wrapper,
-                 p_spiga_wrapper):
+                 p_spiga_encoder_wrapper):
         super().__init__()
         self.width = 0
         self.height = 0
@@ -38,7 +38,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
         self.get_worker_ssrc = p_get_worker_ssrc
         self.get_grm_mode_type = p_get_grm_mode_type
         self.predict_dectector_wrapper = p_predict_dectector_wrapper
-        self.spiga_wrapper = p_spiga_wrapper
+        self.spiga_encoder_wrapper = p_spiga_encoder_wrapper
         self.request_send_key_frame_flag: bool = False
         self.request_recv_key_frame_flag: bool = False
         self.connect_flag: bool = False
@@ -149,7 +149,7 @@ class EncodeVideoPacketWorker(GrmParentThread):
                         video_bin_data = self.bin_wrapper.to_bin_request_key_frame()
                     else:
                         if self.get_grm_mode_type() == ModeType.KDM:
-                            features_tracker, features_spiga = self.spiga_wrapper.encode(frame)
+                            features_tracker, features_spiga = self.spiga_encoder_wrapper.encode(frame)
                             if features_tracker is not None and features_spiga is not None:
                                 video_bin_data = self.bin_wrapper.to_bin_features(frame,
                                                                                   features_tracker,
