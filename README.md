@@ -20,8 +20,20 @@ Build Configuration
   * Due to github capacity issues, the "vox-adv-cpk.pth.tar" file must be downloaded separately.
 
 -- Goorooroomee App Test Procedure ---
-Precondition
-1) torch.cuda.is_available() is True
+Installation
+1) install conda module
+    - conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
+2) install pip module
+    - pip install tensorflow
+    - pip install scikit-learn
+    - pip install sort-tracker-py
+    - pip install retinaface-py
+    - pip install face-alignment
+    - pip install pyqt5
+    - pip install pyqt5-tools
+    - pip install pygame
+    - pip install pyaudio
+    - pip install hp2p-api
 
 1. Run FVApp as a channel creator
     parameter

@@ -46,7 +46,7 @@ class PredictorLocal:
         self.config_path = config_path
         self.checkpoint_path = checkpoint_path
         self.generator, self.kp_detector = self.load_checkpoints()
-        self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=self.device)
+        self.fa = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, flip_input=True, device=self.device)
         self.source = None
         self.kp_source = None
         self.enc_downscale = enc_downscale

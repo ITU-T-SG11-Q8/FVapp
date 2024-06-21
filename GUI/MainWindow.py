@@ -2,7 +2,7 @@ import os
 
 import pyaudio
 from PyQt5 import QtCore, uic, QtGui
-from PyQt5.QtCore import QTimer, pyqtSlot, QThread
+from PyQt5.QtCore import QTimer, pyqtSlot
 from PyQt5.QtWidgets import QMainWindow, QFileDialog, QMessageBox
 
 from GUI.RoomCreate import RoomCreateClass
@@ -12,7 +12,7 @@ from afy.arguments import opt
 from gooroomee.grm_defs import ModeType, SessionData, PeerData, IMAGE_SIZE, GrmParentThread, MediaQueueData, OwnerData
 from gooroomee.grm_packet import BINWrapper, TYPE_INDEX
 from typing import List
-from afy.utils import crop, resize
+from afy.utils import resize
 
 import hp2papi as api
 import time
@@ -370,7 +370,7 @@ class MainWindowClass(QMainWindow, form_class):
                 self.create_button.setText("Channel Delete")
                 self.room_information_button.setDisabled(False)
 
-                print('register session_notification_listener')
+                print('register session_notification_listener by creation')
                 api.SetNotificatonListener(self.join_session.overlayId, self.join_session.ownerId,
                                            func=self.session_notification_listener)
             else:
@@ -435,7 +435,7 @@ class MainWindowClass(QMainWindow, form_class):
             self.join_session.ownerId = self.peer_id
             self.room_information_button.setDisabled(False)
 
-            print('register session_notification_listener')
+            print('register session_notification_listener by join')
             api.SetNotificatonListener(overlayId=self.join_session.overlayId,
                                        peerId=self.join_session.ownerId,
                                        func=self.session_notification_listener)
