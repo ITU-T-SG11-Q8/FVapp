@@ -80,7 +80,7 @@ def compute_bbox_trajectories(trajectories, fps, frame_shape, args):
 
 
 def process_video(args):
-    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
+    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, flip_input=False)
     video = imageio.get_reader(args.inp)
 
     trajectories = []
