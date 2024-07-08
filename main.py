@@ -4,7 +4,7 @@ from sys import platform as _platform
 
 from GUI.MainWindow import MainWindowClass
 from afy.arguments import opt
-from afy.utils import info, Tee, crop, resize
+from afy.utils import info, Tee, resize
 import sys
 import numpy as np
 from PyQt5.QtWidgets import QApplication
@@ -294,7 +294,7 @@ if __name__ == '__main__':
         config = yaml.load(f, Loader=yaml.FullLoader)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     checkpoint = torch.load(opt.checkpoint, map_location=device)
-    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=True, device=device)
+    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType.TWO_D, flip_input=True, device=device)
 
     if predict_dectector_wrapper is None:
         predict_dectector_args = {
